@@ -108,7 +108,7 @@ canvas {
 </style>
 </head>
 <body>
-<h1>🦊 Coco狐快跑 🦊</h1>
+<h1>🦊 聖誕狐狸大逃亡</h1>
 <div id="wrap">
   <canvas id="game" width="800" height="300"></canvas>
   <img id="playerSprite" src="ezgif-CocoFoxSantaRunningTransparent.gif" width="76" height="76">
@@ -135,14 +135,19 @@ canvas {
 
   let state = 'ready';
   
-  // 速度參數微調：更平滑的初始速度與加速曲線
-  let speed = 3.2, baseSpeed = 3.2, gravity = 0.6;
+  // 速度參數（鎖定 60 FPS 後，這些數值在所有螢幕上將跑得一模一樣！）
+  let speed = 3.5, baseSpeed = 3.5, gravity = 0.6;
   let score = 0, best = 0, frame = 0;
   let obstacles = [], collectibles = [], snowflakes = [];
   
   // 統一的生成器冷卻時間 (單位：幀)
   let spawnCooldown = 0; 
   let poopCount = 0, giftCount = 0;
+
+  // --- 【新增：FPS 控制器變數】 ---
+  let lastTime = performance.now();
+  const fps = 60;
+  const msPerFrame = 1000 / fps; // 每幀大約 16.67ms
 
   const images = {
     police: new Image(),
@@ -424,23 +429,31 @@ canvas {
     drawScore();
   }
 
-  function loop(){
-    if(state==='running') update();
-    render();
+  // --- 【核心修改：限制並同步 60 FPS 渲染迴圈】 ---
+  function loop(currentTime){
     requestAnimationFrame(loop);
+
+    // 計算自上一次更新以來經過的時間
+    const elapsed = currentTime - lastTime;
+
+    // 如果時間大於等於一幀所需的微秒數 (約 16.67ms)
+    if (elapsed >= msPerFrame) {
+      // 扣除掉這一幀所用掉的時間（保留多餘的微秒以防時間漂移，保持平滑）
+      lastTime = currentTime - (elapsed % msPerFrame);
+
+      if(state==='running') update();
+      render();
+    }
   }
 
-  // 手機版與電腦版自適應 RWD 縮放邏輯（完美置中且放大）
+  // 手機版與電腦版自適應 RWD 縮放邏輯
   function resizeGame() {
     const wrap = document.getElementById('wrap');
-    
-    // 將畫面寬度拉大到螢幕的 95%，兩旁僅保留 2.5% 的安全間隙
     const targetWidth = window.innerWidth * 0.95;
-    const scale = targetWidth / 800; // 允許超過 1.0 的縮放
+    const scale = targetWidth / 800; 
     
     wrap.style.transform = `scale(${scale})`;
 
-    // 用負 Margin 補償縮放後造成的排版邊界位移，讓 Flexbox 保持真正的正中間對齊
     const marginX = (800 * scale - 800) / 2;
     const marginY = (300 * scale - 300) / 2;
     
@@ -455,7 +468,12 @@ canvas {
 
   resetGame();
   render();
-  requestAnimationFrame(loop);
+  
+  // 傳入第一個高精度時間戳記啟動迴圈
+  requestAnimationFrame((time) => {
+    lastTime = time;
+    loop(time);
+  });
 })();
 </script>
 </body>
