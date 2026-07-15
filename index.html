@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>聖誕狐狸大逃亡 Santa Fox Run</title>
+<style>
+:root{
+--sky-top: #0b1d3a;
+--sky-bottom: #1c3f66;
+--snow: #eef6fb;
+--ink: #17243a;
+--line: #6a63e0;
+--accent: #f2604a;
+--accent2: #9aa0a6;
+--card: #fffdf7;
+}
+html,body{
+margin:0; padding:0; height:100%;
+background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom));
+font-family: 'Courier New', monospace;
+color: var(--ink);
+display:flex; align-items:center; justify-content:center;
+flex-direction: column;
+}
+h1{
+color: var(--snow);
+letter-spacing: 3px;
+font-size: 20px;
+margin: 18px 0 6px;
+text-transform: uppercase;
+text-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+#wrap{
+position: relative;
+width: 800px; height: 300px;
+box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+border-radius: 6px;
+overflow: hidden;
+background: var(--card);
+}
+canvas{ display:block; position:absolute; top:0; left:0; }
+#playerSprite{
+position:absolute;
+image-rendering: -webkit-optimize-contrast;
+pointer-events:none;
+will-change: transform;
+transform-origin: center bottom;
+z-index: 5;
+}
+#hint{
+font-size: 13px;
+color: var(--snow);
+opacity: 0.8;
+margin-top: 10px;
+letter-spacing: 1px;
+text-align:center;
+}
+#overlay{
+position:absolute; inset:0;
+display:flex; align-items:center; justify-content:center;
+flex-direction: column;
+background: rgba(255,253,247,0.95);
+text-align:center;
+font-size:15px;
+padding: 12px;
+box-sizing: border-box;
+z-index: 10;
+}
+#overlay button{
+margin-top: 14px;
+padding: 8px 20px;
+font-family: inherit;
+font-size: 14px;
+letter-spacing: 2px;
+background: var(--line);
+color: #fff;
+border: none;
+border-radius: 4px;
+cursor: pointer;
+}
+.statsRow{
+display:flex; gap:18px; margin-top:10px; font-size:13px;
+}
+.hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<h1>🦊 聖誕狐狸大逃亡</h1>
+<div id="wrap">
+<canvas id="game" width="800" height="300"></canvas>
+<img id="playerSprite" src="ezgif-CocoFoxSantaRunningTransparent.gif" width="76" height="76">
+<div id="overlay">
+<div id="overlayText">按空白鍵 / ↑ 開始奔跑</div>
+<button id="startBtn">開始遊戲</button>
+<div id="statsDisplay" class="statsRow" style="display:none;"></div>
+</div>
+</div>
+<div id="hint">空白鍵 / ↑ 跳躍　·　↓ 下蹲躲蟑螂　·　躲開警察與三角錐　·　收集大便與禮物各 +10 分</div>
+
+<script>
+(function(){
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const spriteEl = document.getElementById('playerSprite');
+const W = canvas.width, H = canvas.height;
+const groundY = 235;
+
+const overlay = document.getElementById('overlay');
+const overlayText = document.getElementById('overlayText');
+const statsDisplay = document.getElementById('statsDisplay');
+const startBtn = document.getElementById('startBtn');
+
+let state = 'ready';
+// 降低初始速度，從 6 改為 4，遊戲開始時更從容
+let speed = 4, baseSpeed = 4, gravity = 0.62;
+let score = 0, best = 0, frame = 0;
+let obstacles = [], collectibles = [], snowflakes = [];
+let nextObstacleIn = 0, nextCollectibleIn = 0;
+let poopCount = 0, giftCount = 0;
+
+// 預先載入所有圖片
+const images = {
+police: new Image(),
+cone: new Image(),
+roach: new Image(),
+poop: new Image(),
+gift: new Image()
+};
+
+// 設定圖片路徑（與 HTML 在同一資料夾）
+images.police.src = 'Cop2Trans.png';
+images.cone.src = 'TrafficConeTrans.png';
+images.roach.src = 'CockroachTrans.png';
+images.poop.src = 'PoopTrans.png';
+images.gift.src = 'GiftBoxTrans.png';
+
+// 等待所有圖片載入完成
+let imagesLoaded = 0;
+const totalImages = 5;
+Object.values(images).forEach(img => {
+img.onload = () => {
+imagesLoaded++;
+if(imagesLoaded === totalImages) {
+console.log('所有圖片載入完成！');
+}
+};
+});
+
+const SPRITE_W = 76, SPRITE_H = 76;
+const player = {
+x: 60, y: groundY - 58, w: 44, h: 58,
+vy: 0, ducking:false, onGround:true
+};
+
+function resetGame(){
+speed = baseSpeed; score = 0; frame = 0;
+obstacles = []; collectibles = []; snowflakes = [];
+poopCount = 0; giftCount = 0;
+player.y = groundY - 58; player.vy = 0;
+player.ducking = false; player.onGround = true;
+nextObstacleIn = 80; nextCollectibleIn = 60;
+for(let i=0;i<20;i++) spawnSnow(true);
+}
+
+function spawnSnow(initial){
+snowflakes.push({
+x: initial ? Math.random()*W : W + Math.random()*40,
+y: initial ? Math.random()*groundY : -10,
+r: 1+Math.random()*2.4,
+vy: 0.4+Math.random()*0.8,
+drift: (Math.random()-0.5)*0.6
+});
+}
+
+function rectsOverlap(a,b){
+return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+
+// ---- 障礙物 ----
+function spawnObstacle(){
+const kinds = ['police','cone','cone','roach'];
+const kind = kinds[Math.floor(Math.random()*kinds.length)];
+let w,h,y;
+if(kind==='police'){ w=50; h=60; y=groundY-h; }
+else if(kind==='cone'){ w=40; h=50; y=groundY-h; }
+else {
+w=55; h=35;
+const levels=[groundY-60, groundY-105, groundY-140];
+y = levels[Math.floor(Math.random()*levels.length)];
+}
+obstacles.push({x:W+20, y, w, h, kind, wing:0});
+}
+
+// ---- 收集物 ----
+function spawnCollectible(){
+const kind = Math.random()<0.5 ? 'poop' : 'gift';
+const w=40, h=40;
+const levels = [groundY-h, groundY-85, groundY-125];
+const y = levels[Math.floor(Math.random()*levels.length)];
+collectibles.push({x:W+20, y, w, h, kind, taken:false, spin:0});
+}
+
+// ---- 輸入 ----
+function jump(){
+if(state==='ready' || state==='gameover'){ startGame(); return; }
+if(player.onGround && !player.ducking){
+player.vy = -12.2;
+player.onGround = false;
+}
+}
+function duckStart(){ if(state==='running') player.ducking = true; }
+function duckEnd(){ player.ducking = false; }
+
+window.addEventListener('keydown', (e)=>{
+if(e.code==='Space' || e.code==='ArrowUp'){ e.preventDefault(); jump(); }
+else if(e.code==='ArrowDown'){ e.preventDefault(); duckStart(); }
+else if(e.code==='KeyR' && state==='gameover'){ startGame(); }
+});
+window.addEventListener('keyup', (e)=>{ if(e.code==='ArrowDown') duckEnd(); });
+canvas.addEventListener('mousedown', jump);
+startBtn.addEventListener('click', startGame);
+
+function startGame(){
+resetGame();
+state = 'running';
+// 確保隱藏結束畫面
+overlay.classList.add('hidden');
+statsDisplay.style.display = 'none';
+}
+
+function endGame(){
+state = 'gameover';
+best = Math.max(best, Math.floor(score));
+overlayText.innerHTML = `遊戲結束 · 分數 ${Math.floor(score)}　最高 ${best}`;
+statsDisplay.innerHTML = `<span>💩 大便 x ${poopCount}</span><span>🎁 禮物 x ${giftCount}</span>`;
+statsDisplay.style.display = 'flex';
+overlay.classList.remove('hidden');
+}
+
+// ---- 更新 ----
+function update(){
+frame++;
+score += speed*0.045;
+// 速度隨分數緩慢增加
+speed = baseSpeed + score*0.012;
+
+const duckH = 34, standH = 58;
+player.h = player.ducking && player.onGround ? duckH : standH;
+player.y += player.vy;
+if(!player.onGround) player.vy += gravity;
+const floorY = groundY - player.h;
+if(player.y >= floorY){ player.y = floorY; player.vy = 0; player.onGround = true; }
+
+snowflakes.forEach(s=>{ s.y += s.vy; s.x += s.drift; });
+snowflakes = snowflakes.filter(s=> s.y < groundY+10);
+if(Math.random()<0.3) spawnSnow(false);
+
+nextObstacleIn--;
+if(nextObstacleIn<=0){
+spawnObstacle();
+nextObstacleIn = Math.max(60, 110 - score*0.05) + Math.random()*50;
+}
+nextCollectibleIn--;
+if(nextCollectibleIn<=0){
+spawnCollectible();
+nextCollectibleIn = 80 + Math.random()*100;
+}
+
+obstacles.forEach(o=>{ o.x -= speed; if(o.kind==='roach') o.wing += 0.4; });
+obstacles = obstacles.filter(o=> o.x + o.w > -10);
+
+collectibles.forEach(c=>{ c.x -= speed; c.spin += 0.08; });
+collectibles = collectibles.filter(c=> c.x + c.w > -10 && !c.taken);
+
+const hitbox = {x: player.x+12, y: player.y+10, w: player.w-24, h: player.h-16};
+
+for(const o of obstacles){
+const obox = {x:o.x+6, y:o.y+6, w:o.w-12, h:o.h-12};
+if(rectsOverlap(hitbox, obox)){ endGame(); return; }
+}
+for(const c of collectibles){
+if(c.taken) continue;
+const cbox = {x:c.x+4, y:c.y+4, w:c.w-8, h:c.h-8};
+if(rectsOverlap(hitbox, cbox)){
+c.taken = true;
+score += 10;
+if(c.kind==='poop') poopCount++; else giftCount++;
+}
+}
+
+// 更新玩家 sprite 的位置與姿勢
+const scale = player.ducking && player.onGround ? 0.72 : 1;
+const tiltDeg = !player.onGround ? -8 : 0;
+spriteEl.style.transform =
+`translate(${player.x - (SPRITE_W-player.w)/2}px, ${player.y - (SPRITE_H-58)}px) ` +
+`scale(${scale}) rotate(${tiltDeg}deg)`;
+}
+
+// ---- 繪製 ----
+function drawSnow(){
+ctx.fillStyle = 'rgba(255,255,255,0.85)';
+snowflakes.forEach(s=>{
+ctx.beginPath();
+ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+ctx.fill();
+});
+}
+
+function drawGround(){
+ctx.fillStyle = '#eef6fb';
+ctx.fillRect(0, groundY+2, W, H-groundY-2);
+ctx.strokeStyle = '#c7d9e6';
+ctx.lineWidth = 2;
+ctx.beginPath();
+ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
+ctx.fillStyle = 'rgba(199,217,230,0.9)';
+const off = (frame*Math.floor(speed)) % 40;
+for(let x=-off; x<W; x+=40){
+ctx.fillRect(x, groundY+10, 16, 3);
+}
+}
+
+// 繪製障礙物（使用真實圖片）
+function drawObstacles(){
+obstacles.forEach(o=>{
+const img = images[o.kind];
+if(img && img.complete) {
+ctx.drawImage(img, o.x, o.y, o.w, o.h);
+} else {
+// 備用：如果圖片還沒載入完，畫一個灰色方塊
+ctx.fillStyle = '#ccc';
+ctx.fillRect(o.x, o.y, o.w, o.h);
+}
+});
+}
+
+// 繪製收集物（使用真實圖片）
+function drawCollectibles(){
+collectibles.forEach(c=>{
+if(c.taken) return;
+const bob = Math.sin(c.spin)*4; // 上下浮動效果
+const img = images[c.kind];
+if(img && img.complete) {
+ctx.drawImage(img, c.x, c.y + bob, c.w, c.h);
+} else {
+ctx.fillStyle = '#ccc';
+ctx.fillRect(c.x, c.y + bob, c.w, c.h);
+}
+});
+}
+
+function drawScore(){
+ctx.fillStyle = '#0b1d3a';
+ctx.font = 'bold 14px "Courier New", monospace';
+ctx.textAlign = 'right';
+ctx.fillText('分數 ' + Math.floor(score).toString().padStart(5,'0'), W-16, 26);
+ctx.fillText('最高 ' + best.toString().padStart(5,'0'), W-16, 44);
+ctx.fillText('💩x' + poopCount + '  🎁x' + giftCount, W-16, 62);
+ctx.textAlign = 'left';
+}
+
+function render(){
+ctx.clearRect(0,0,W,H);
+drawSnow();
+drawGround();
+drawObstacles();
+drawCollectibles();
+drawScore();
+}
+
+function loop(){
+if(state==='running') update();
+render();
+requestAnimationFrame(loop);
+}
+
+resetGame();
+render();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
