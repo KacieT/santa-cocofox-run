@@ -73,7 +73,7 @@ canvas {
   z-index: 2;
 }
 
-/* 直屏專用的下方提示區（預設隱藏） */
+/* 直屏專用的下方提示區 */
 #portraitAlert {
   display: none;
   background: rgba(255, 255, 255, 0.15);
@@ -147,31 +147,28 @@ canvas {
 .hidden { display: none !important; }
 
 /* ==========================================
-   📱 手機端排版 RWD 優化 (解決問題 1、問題 2)
+   📱 手機端排版 RWD 優化
    ========================================== */
-
-/* 當處於手機橫屏 (Landscape) 時：高小於 500px 且寬大於高 */
 @media screen and (max-height: 500px) and (orientation: landscape) {
   h1 {
-    display: none !important; /* 隱藏標題，省下垂直空間防止切到地板 */
+    display: none !important; 
   }
   #hint {
-    margin-top: 5px; /* 緊湊排版 */
+    margin-top: 5px; 
   }
 }
 
-/* 當處於手機直屏 (Portrait) 時：寬小於高 且 寬小於 800px */
 @media screen and (max-aspect-ratio: 13/9) and (max-width: 800px) {
   html, body {
-    justify-content: flex-start; /* 讓內容靠頂部排，而不是死死鎖在中間 */
-    padding-top: 5%;             /* 畫面上移，為下方提示留出空間 */
+    justify-content: flex-start; 
+    padding-top: 5%;             
   }
   h1 {
     font-size: 18px;
     margin: 10px 0;
   }
   #portraitAlert {
-    display: block; /* 秀出直屏專用下方提示 */
+    display: block; 
   }
 }
 </style>
@@ -208,6 +205,9 @@ canvas {
   const W = canvas.width, H = canvas.height;
   const groundY = 235;
 
+  // --- 【Debug 工具：如果你想在畫面上直接看見判定盒，請改成 true】 ---
+  const DEBUG_MODE = false; 
+
   const overlay = document.getElementById('overlay');
   const overlayText = document.getElementById('overlayText');
   const statsDisplay = document.getElementById('statsDisplay');
@@ -239,7 +239,7 @@ canvas {
 
   audio.bgm.loop = true;
   let isMuted = false;
-  let lastMilestoneScore = 0; // 追蹤上一次達到的 100 分里程碑
+  let lastMilestoneScore = 0; 
 
   const images = {
     police: new Image(),
@@ -256,6 +256,8 @@ canvas {
   images.gift.src = 'GiftBoxTrans.png';
 
   const SPRITE_W = 76, SPRITE_H = 76;
+  
+  // 核心物理判定參數優化
   const player = {
     x: 65, y: groundY - 58, w: 44, h: 58,
     vy: 0, ducking: false, onGround: true
@@ -297,10 +299,9 @@ canvas {
     else if(kind==='cone'){ w=40; h=50; y=groundY-h; }
     else { 
       w=55; h=35;
-      // 【核心修改】：調整飛行蟑螂的低飛高度 (解決問題 3)
-      // 將最低空的高度從 groundY-55 調整為 groundY-45。
-      // 此高度下，站立的狐狸（判定箱頂部高於 groundY-48）必撞！下蹲（頂部降至 groundY-24）則完美閃過。
-      const levels=[groundY-45, groundY-95, groundY-135];
+      // 飛行蟑螂的高度 (低飛、中飛、高飛)
+      // 低飛高度調至 groundY-70，剛好卡在站立狐狸判定範圍內，下蹲則可安全通過。
+      const levels=[groundY-70, groundY-105, groundY-145];
       y = levels[Math.floor(Math.random()*levels.length)];
     }
     obstacles.push({x: W+20, y, w, h, kind, wing: 0});
@@ -431,6 +432,21 @@ canvas {
     overlay.classList.remove('hidden');
   }
 
+  // 取得當前玩家精準判定盒的輔助函數
+  function getPlayerHitbox() {
+    // 蹲下與站立時的頂部邊界與高度調整
+    const isDucking = player.ducking && player.onGround;
+    const topOffset = isDucking ? 24 : 10; // 蹲下時，判定盒頂部再往下推 14 像素
+    const hitH = isDucking ? 14 : player.h - 16;  // 蹲下時高度變為 14 像素（極限扁平）
+
+    return {
+      x: player.x + 12,
+      y: player.y + topOffset,
+      w: player.w - 24,
+      h: hitH
+    };
+  }
+
   function update(){
     frame++;
     score += speed*0.045;
@@ -442,6 +458,7 @@ canvas {
       playSound(audio.scoreMilestone);
     }
 
+    // 狐狸高度物理屬性
     const duckH = 34, standH = 58;
     player.h = player.ducking && player.onGround ? duckH : standH;
     player.y += player.vy;
@@ -461,14 +478,16 @@ canvas {
     collectibles.forEach(c=>{ c.x -= speed; c.spin += 0.08; });
     collectibles = collectibles.filter(c=> c.x + c.w > -10 && !c.taken);
 
-    // 精準碰撞判定盒
-    const hitbox = {x: player.x+12, y: player.y+10, w: player.w-24, h: player.h-16};
+    // 取得精準判定盒
+    const hitbox = getPlayerHitbox();
 
+    // 障礙物碰撞檢測
     for(const o of obstacles){
       const obox = {x:o.x+6, y:o.y+6, w:o.w-12, h:o.h-12};
       if(rectsOverlap(hitbox, obox)){ endGame(); return; }
     }
     
+    // 收集物碰撞檢測
     for(const c of collectibles){
       if(c.taken) continue;
       const cbox = {x:c.x+4, y:c.y+4, w:c.w-8, h:c.h-8};
@@ -518,6 +537,13 @@ canvas {
         ctx.fillStyle = o.kind === 'roach' ? '#5c4033' : '#f2604a';
         ctx.fillRect(o.x, o.y, o.w, o.h);
       }
+
+      // --- 【Debug 模式：繪製障礙物紅色物理判定盒】 ---
+      if (DEBUG_MODE) {
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(o.x+6, o.y+6, o.w-12, o.h-12);
+      }
     });
   }
 
@@ -543,6 +569,14 @@ canvas {
     ctx.fillText('最高 ' + best.toString().padStart(5,'0'), W-16, 44);
     ctx.fillText('💩x' + poopCount + '  🎁x' + giftCount, W-16, 62);
     ctx.textAlign = 'left';
+
+    // --- 【Debug 模式：在畫面上繪製狐狸的綠色物理判定盒】 ---
+    if (DEBUG_MODE) {
+      const hitbox = getPlayerHitbox();
+      ctx.strokeStyle = 'lime';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hitbox.x, hitbox.y, hitbox.w, hitbox.h);
+    }
   }
 
   function render(){
