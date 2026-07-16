@@ -1,4 +1,5 @@
 <!--const DEBUG_MODE = -->
+<!--const START_SCORE_TEST = -->
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -207,10 +208,27 @@ canvas {
   const ctx = canvas.getContext('2d');
   const spriteEl = document.getElementById('playerSprite');
   const W = canvas.width, H = canvas.height;
+  // === 【新增：晝夜交替全域狀態與進度控制變數】 ===
+  let sceneProgress = 0; // 當前過渡進度（0~1）
+  let sceneCurrent = 'snow'; // 當前場景狀態
+  let sceneNext = 'snow'; // 即將切換的下一個場景狀態
+
+  // 顏色線性插值 (Lerp) 演算法（用於平滑融合天空顏色、字體顏色）
+  function lerpColor(color1, color2, weight) {
+    const c1 = { r: parseInt(color1.slice(1,3),16), g: parseInt(color1.slice(3,5),16), b: parseInt(color1.slice(5,7),16) };
+    const c2 = { r: parseInt(color2.slice(1,3),16), g: parseInt(color2.slice(3,5),16), b: parseInt(color2.slice(5,7),16) };
+    const r = Math.round(c1.r + (c2.r - c1.r) * weight).toString(16).padStart(2,'0');
+    const g = Math.round(c1.g + (c2.g - c1.g) * weight).toString(16).padStart(2,'0');
+    const b = Math.round(c1.b + (c2.b - c1.b) * weight).toString(16).padStart(2,'0');
+    return `#${r}${g}${b}`;
+  }
   const groundY = 235;
 
   // --- 【Debug 工具：如果你想在畫面上直接看見判定盒，請改成 true】 ---
   const DEBUG_MODE = false; 
+  // === 【測試小工具：自訂起始分數直達車】 ===
+  const START_SCORE_TEST = false; // 💡 測試時改成 true，想正常玩時改成 false
+  const TEST_START_SCORE = 880;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
 
   const overlay = document.getElementById('overlay');
   const overlayText = document.getElementById('overlayText');
@@ -305,28 +323,65 @@ canvas {
   initMountains(); // 初始生成雪山
 
   // 動態背景大樓數據陣列
+  // === 【重構：雙層立體霓虹都市大樓數據結構】 ===
+  // === 【重構：方案 A 邊緣霓虹高光都市大樓數據結構】 ===
+  // === 【重構：方案 1 剪紙重疊陰影都市大樓數據結構】 ===
   let cityBuildings = [];
   function initBuildings() {
     cityBuildings = [];
-    let currentX = 0;
-    while (currentX < W + 150) {
-      const width = 60 + Math.random() * 80;
-      const height = 100 + Math.random() * 110;
+    
+    // 1. 生成後排遠景大樓（更高、更寬、無窗戶、速度極慢，作為更深沉的背景剪影）
+    let farX = -50;
+    while (farX < W + 200) {
+      const width = 80 + Math.random() * 90;
+      const height = 110 + Math.random() * 90;
+      cityBuildings.push({
+        x: farX, w: width, h: height,
+        layer: 'far', 
+        scrollSpeed: 0.08, 
+        mainColor: '#0a0914', // 遠景大樓主體色更深，自然融入夜空
+        windows: [] 
+      });
+      farX += width - 10;
+    }
+
+    // 2. 生成前排近景大樓（高低錯落、配置彩色霓虹窗戶、速度稍快）
+    let nearX = 0;
+    while (nearX < W + 200) {
+      const width = 55 + Math.random() * 65;
+      const height = 80 + Math.random() * 80;
+      
       const windows = [];
-      const cols = Math.floor(width / 18);
-      const rows = Math.floor(height / 25);
-      for(let r=1; r<rows-1; r++){
-        for(let c=1; c<cols-1; c++){
-          if(Math.random() < 0.35) { 
-            windows.push({dx: c*18, dy: r*25});
+      const cols = Math.floor(width / 16);
+      const rows = Math.floor(height / 22);
+      const isPinkTheme = Math.random() < 0.45; 
+      const winColor = isPinkTheme ? '#ff5c8d' : '#ffd166'; 
+
+      for (let r = 1; r < rows - 1; r++) {
+        if (Math.random() < 0.45) {
+          for (let c = 1; c < cols - 1; c++) {
+            if (Math.random() < 0.7) { 
+              windows.push({ 
+                dx: c * 16, 
+                dy: r * 22, 
+                color: winColor 
+              });
+            }
           }
         }
       }
-      cityBuildings.push({ x: currentX, w: width, h: height, windows });
-      currentX += width - 5; 
+
+      cityBuildings.push({
+        x: nearX, w: width, h: height,
+        layer: 'near', 
+        scrollSpeed: 0.15, 
+        mainColor: '#121424', // 前排近景大樓主體色（高級黑藍灰色）
+        windows: windows
+      });
+      nearX += width - 5; 
     }
   }
-  initBuildings();
+  initBuildings(); // 初始生成大樓
 
   // 音訊物件初始化
   const audio = {
@@ -361,8 +416,14 @@ canvas {
   };
 
   function resetGame(){
-    speed = baseSpeed; score = 0; frame = 0;
-    lastMilestoneScore = 0;
+    // 💡 判斷是否開啟起跑分數測試，若是，則套用測試分數，否則從 0 開始
+    score = START_SCORE_TEST ? TEST_START_SCORE : 0;
+    
+    // 依據分數公式，自動等比例同步拉高遊戲的起始速度，確保物理滾動與速度不穿幫
+    speed = baseSpeed + Math.sqrt(score) * 0.08; 
+    
+    frame = 0;
+    lastMilestoneScore = Math.floor(score / 100); // 同步里程碑音效檢測起點
     obstacles = []; collectibles = []; snowflakes = [];
     poopCount = 0; giftCount = 0;
     player.y = groundY - 58; player.vy = 0;
@@ -561,7 +622,19 @@ canvas {
       playSound(audio.scoreMilestone);
     }
 
-    // 狐狸高度物理屬性
+    // === 【步驟二核心：在 update 頂部計算 2000分大循環的晝夜過渡進度】 ===
+    const loopScore = Math.floor(score) % 2000;
+    if (loopScore < 900) {
+      sceneProgress = 0; sceneCurrent = 'snow'; sceneNext = 'snow';
+    } else if (loopScore >= 900 && loopScore < 1000) {
+      sceneProgress = (loopScore - 900) / 100; sceneCurrent = 'snow'; sceneNext = 'city';
+    } else if (loopScore >= 1000 && loopScore < 1900) {
+      sceneProgress = 0; sceneCurrent = 'city'; sceneNext = 'city';
+    } else {
+      sceneProgress = (loopScore - 1900) / 100; sceneCurrent = 'city'; sceneNext = 'snow';
+    }
+
+    // 💡 保留：狐狸高度物理屬性（絕對不能刪！）
     const duckH = 34, standH = 58;
     player.h = player.ducking && player.onGround ? duckH : standH;
     player.y += player.vy;
@@ -569,68 +642,52 @@ canvas {
     const floorY = groundY - player.h;
     if(player.y >= floorY){ player.y = floorY; player.vy = 0; player.onGround = true; }
 
-    const theme = getTheme();
-
-    // 💡 根據關卡主題更新雪花或雲朵
-    if (theme === 'city') {
-      snowflakes.forEach(s=>{ s.y += s.vy; s.x += s.drift; });
-      snowflakes = snowflakes.filter(s=> s.y < groundY+10);
-      if(Math.random()<0.35) spawnSnow(false);
-      clouds = []; // 夜晚清空雲朵
-    } else {
-      snowflakes = []; // 白天清空雪花
-
-      // 💡 【新增】：更新幾何雪山滾動（極慢速視差，speed * 0.05）
-      // 💡 【重構】：支援遠近雙層各自滾動的速度視差（不再共用單一0.05速度）
-      mountains.forEach(m => {
-        m.x -= (speed * m.scrollSpeed);
-        
-        // 邊界安全回寫重設（遠山與近山各自在自己的圖層極限回滾）
-        if (m.x + m.w < -100) {
-          let maxRight = -100;
-          mountains.forEach(mt => {
-            if(mt.layer === m.layer && mt.x > maxRight) maxRight = mt.x;
-          });
-          m.x = maxRight + m.w * (m.layer === 'far' ? 0.7 : 0.75);
-        }
-      });
-      
-      // 💡 核心修改 2：如果切換回白天，且 clouds 陣列此時為空，代表剛跨越 2000 分。我們在此重新初始化雲朵！
-      if (clouds.length === 0) {
-        initClouds();
+    // 💡 1. 雙層雪山在後台默默保持滾動更新（不分晝夜）
+    mountains.forEach(m => {
+      m.x -= (speed * m.scrollSpeed);
+      if (m.x + m.w < -100) {
+        let maxRight = -100;
+        mountains.forEach(mt => {
+          if(mt.layer === m.layer && mt.x > maxRight) maxRight = mt.x;
+        });
+        m.x = maxRight + m.w * (m.layer === 'far' ? 0.7 : 0.75);
       }
+    });
 
-      // 白天更新雲朵移動
-      clouds.forEach(c => {
-        c.x -= c.speed;
-        if (c.x + c.w < -30) {
-          c.x = W + 30;
-          c.y = 25 + Math.random() * 40;
-        }
-      });
+    // 💡 2. 白雲在後台默默保持滾動更新（不分晝夜）
+    if (clouds.length === 0) initClouds();
+    clouds.forEach(c => {
+      c.x -= c.speed;
+      if (c.x + c.w < -30) {
+        c.x = W + 30;
+        c.y = 25 + Math.random() * 40;
+      }
+    });
+
+    // 💡 3. 都市背景大樓在後台默默保持滾動更新（不分晝夜）
+    cityBuildings.forEach(b => {
+      b.x -= (speed * b.scrollSpeed);
+      if (b.x + b.w < -100) {
+        let maxRight = W;
+        cityBuildings.forEach(bt => {
+          if (bt.layer === b.layer && bt.x > maxRight) maxRight = bt.x;
+        });
+        b.x = maxRight + b.w - 5;
+      }
+    });
+
+    // 💡 4. 雪花更新：只在入夜後（sceneCurrent === 'city' 或 sceneNext === 'city'）才在空中落下
+    const relativeScore = Math.floor(score) % 2000;
+    const isNightTime = relativeScore >= 900 && relativeScore < 2000; // 包含過渡期
+    if (isNightTime) {
+      snowflakes.forEach(s => { s.y += s.vy; s.x += s.drift; });
+      snowflakes = snowflakes.filter(s => s.y < groundY + 10);
+      if (Math.random() < 0.35) spawnSnow(false);
+    } else {
+      snowflakes = []; // 白天雪花融化
     }
 
-    // 都市背景滾動更新邏輯
-    if (theme === 'city') {
-      const bgSpeed = speed * 0.15; 
-      cityBuildings.forEach(b => b.x -= bgSpeed);
-      cityBuildings.forEach(b => {
-        if (b.x + b.w < 0) {
-          b.x = W + Math.random() * 40;
-          b.w = 60 + Math.random() * 80;
-          b.h = 100 + Math.random() * 110;
-          b.windows = [];
-          const cols = Math.floor(b.w / 18);
-          const rows = Math.floor(b.h / 25);
-          for(let r=1; r<rows-1; r++){
-            for(let c=1; c<cols-1; c++){
-              if(Math.random() < 0.35) b.windows.push({dx: c*18, dy: r*25});
-            }
-          }
-        }
-      });
-    }
-
+    // 💡 保留：生成與障礙物/收集物碰撞檢測
     manageSpawning();
 
     obstacles.forEach(o=>{ o.x -= speed; if(o.kind==='roach') o.wing += 0.4; });
@@ -706,17 +763,39 @@ canvas {
   }
 
   // 城市剪影大樓繪製
+  // === 【重構：繪製「立體摺紙霓虹風」雙層都市大樓】 ===
+  // === 【重構：繪製方案 A「邊緣霓虹側光風」雙層都市大樓】 ===
+  // === 【重構：繪製方案 1「剪紙重疊陰影風」雙層都市大樓】 ===
   function drawCityBuildings() {
     ctx.save();
-    cityBuildings.forEach(b => {
-      ctx.fillStyle = '#111424'; 
-      ctx.fillRect(b.x, groundY - b.h, b.w, b.h);
-      
-      b.windows.forEach(w => {
-        ctx.fillStyle = 'rgba(255, 225, 120, 0.75)'; 
-        ctx.fillRect(b.x + w.dx, groundY - b.h + w.dy, 6, 8);
+    
+    // 依序先畫後排遠景大樓，再疊加前排近景大樓與陰影
+    const layersOrder = ['far', 'near'];
+    layersOrder.forEach(layerTag => {
+      cityBuildings.forEach(b => {
+        if (b.layer !== layerTag) return;
+
+        // --- 如果是前排近景大樓，先在它右側投射半透明剪紙陰影 ---
+        if (layerTag === 'near') {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'; // 高質感的深邃半透明黑色投影
+          const shadowWidth = 10; // 陰影寬度 10 像素
+          ctx.fillRect(b.x + b.w, groundY - b.h, shadowWidth, b.h);
+        }
+
+        // --- 1. 繪製大樓主體面（極致乾淨、無光邊的單色矩形） ---
+        ctx.fillStyle = b.mainColor;
+        ctx.fillRect(b.x, groundY - b.h, b.w, b.h);
+
+        // --- 2. 繪製前排近景大樓的精緻冷暖色霓虹窗戶 ---
+        b.windows.forEach(w => {
+          ctx.fillStyle = w.color;
+          ctx.globalAlpha = 0.85;
+          ctx.fillRect(b.x + w.dx, groundY - b.h + w.dy, 5, 7);
+        });
+        ctx.globalAlpha = 1.0; // 重設透明度
       });
     });
+    
     ctx.restore();
   }
 
@@ -731,38 +810,45 @@ canvas {
   }
 
   // 地面繪製
+  // === 【重構：支援晝夜平滑交替的地面渲染】 ===
   function drawGround(){
-    const theme = getTheme();
-    
-    if (theme === 'snow') {
-      // 原版雪地路面
+    // 1. 繪製白天的雪地地面函數
+    const renderSnowGround = () => {
       ctx.fillStyle = '#eef6fb';
       ctx.fillRect(0, groundY+2, W, H-groundY-2);
       ctx.strokeStyle = '#c7d9e6';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
       
-      // 繪製雪地上的移動小碎塊
       ctx.fillStyle = 'rgba(199,217,230,0.9)';
       const off = (frame*Math.floor(speed)) % 40;
-      for(let x=-off; x<W; x+=40){
-        ctx.fillRect(x, groundY+10, 16, 3);
-      }
-    } else {
-      // 馬路主題：瀝青黑路與黃色雙虛線
-      ctx.fillStyle = '#1e1e24'; 
+      for(let x=-off; x<W; x+=40) ctx.fillRect(x, groundY+10, 16, 3);
+    };
+
+    // 2. 繪製夜晚的馬路地面函數
+    const renderCityGround = () => {
+      ctx.fillStyle = '#1e1e24';
       ctx.fillRect(0, groundY+2, W, H-groundY-2);
       ctx.strokeStyle = '#3e3e4a';
       ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
 
-      ctx.fillStyle = '#f1c40f'; 
+      ctx.fillStyle = '#f1c40f';
       const off = (frame*Math.floor(speed)) % 50;
-      for(let x=-off; x<W; x+=50){
-        ctx.fillRect(x, groundY+30, 24, 4); 
-      }
+      for(let x=-off; x<W; x+=50) ctx.fillRect(x, groundY+30, 24, 4);
+    };
+
+    // 3. 依據過渡進度進行雙層路面透明度疊加 (Cross-fade)
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      renderSnowGround();
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      renderCityGround();
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      renderSnowGround();
+      ctx.save(); ctx.globalAlpha = sceneProgress; renderCityGround(); ctx.restore();
+    } else {
+      renderCityGround();
+      ctx.save(); ctx.globalAlpha = sceneProgress; renderSnowGround(); ctx.restore();
     }
   }
 
@@ -799,11 +885,23 @@ canvas {
     });
   }
 
+  // === 【重構：支援字色平滑過渡的 drawScore 函數】 ===
   function drawScore(){
-    const theme = getTheme();
-    // 白天與黑夜動態調整字體顏色
-    ctx.fillStyle = theme === 'snow' ? '#1c3f66' : '#fffdf7';
+    // 依據晝夜進度，平滑融合字體顏色：白天為深藍 (#1c3f66)，夜晚為溫和白 (#fffdf7)
+    let textColor = '#1c3f66';
+    const snowColor = '#1c3f66', cityColor = '#fffdf7';
 
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      textColor = snowColor;
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      textColor = cityColor;
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      textColor = lerpColor(snowColor, cityColor, sceneProgress);
+    } else {
+      textColor = lerpColor(cityColor, snowColor, sceneProgress);
+    }
+
+    ctx.fillStyle = textColor;
     ctx.font = 'bold 14px "Courier New", monospace';
     ctx.textAlign = 'right';
     ctx.fillText('分數 ' + Math.floor(score).toString().padStart(5,'0'), W-16, 26);
@@ -811,7 +909,6 @@ canvas {
     ctx.fillText('💩x' + poopCount + '  🎁x' + giftCount, W-16, 62);
     ctx.textAlign = 'left';
 
-    // --- 【Debug 模式：在畫面上繪製狐狸的綠色物理判定盒】 ---
     if (DEBUG_MODE) {
       const hitbox = getPlayerHitbox();
       ctx.strokeStyle = 'lime';
@@ -820,19 +917,56 @@ canvas {
     }
   }
 
+  // === 【全新重構：2000分晝夜交替大循環 render 函數】 ===
   function render(){
     ctx.clearRect(0,0,W,H);
     
-    // 1. 繪製天空
-    drawSky();
+    // 1. 【天空過渡】：利用顏色的插值演算法，計算出當前最自然的天空過渡漸層色
+    const snowTop = '#a1c4fd', snowBot = '#c2e9fb'; // 白天天空
+    const cityTop = '#0d081f', cityBot = '#1a103c'; // 夜晚天空
+    let topColor, bottomColor;
+
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      topColor = snowTop; bottomColor = snowBot;
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      topColor = cityTop; bottomColor = cityBot;
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      topColor = lerpColor(snowTop, cityTop, sceneProgress);
+      bottomColor = lerpColor(snowBot, cityBot, sceneProgress);
+    } else {
+      topColor = lerpColor(cityTop, snowTop, sceneProgress);
+      bottomColor = lerpColor(cityBot, snowBot, sceneProgress);
+    }
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, topColor);
+    grad.addColorStop(1, bottomColor);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
     
-    // 2. 根據不同主題渲染背景遠景
-    const theme = getTheme();
-    if (theme === 'snow') {
-      drawClouds(); // 白天繪製雲朵
-      // 💡 【新增】：白天繪製幾何三角形雪山與雪帽
-      // 💡 【重構】：白天繪製「立體摺紙光影風」雙層幾何雪山與雪帽
-      // 核心技巧：先畫所有遠山，再畫所有近山，利用一刀切繪製出迎光面與背光面
+    // 2. 【計算遠景透明度】：計算白天雪山雲朵與夜晚大樓此時各別的透明度權重 (0 ~ 1)
+    let snowAlpha = 0, cityAlpha = 0;
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      snowAlpha = 1; cityAlpha = 0;
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      snowAlpha = 0; cityAlpha = 1;
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      snowAlpha = 1 - sceneProgress; // 白天物件漸漸淡出
+      cityAlpha = sceneProgress;     // 夜晚大樓漸漸淡入
+    } else {
+      snowAlpha = sceneProgress;     // 白天物件漸漸淡入
+      cityAlpha = 1 - sceneProgress; // 夜晚大樓漸漸淡出
+    }
+    
+    // 3. 【繪製白天物件】：在白天的權重不為 0 時，平滑渲染白雲與摺紙雪山
+    if (snowAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = snowAlpha; // 控制雪山與雲朵的淡入淡出
+      
+      // A. 繪製蓬鬆雲朵
+      drawClouds();
+
+      // B. 繪製幾何立體摺紙雪山
       const layersOrder = ['far', 'near'];
       layersOrder.forEach(layerTag => {
         mountains.forEach(m => {
@@ -840,25 +974,22 @@ canvas {
 
           const peakX = m.x + m.peakOffset;
           const peakY = groundY - m.h;
-          const snowRatio = 0.32; // 雪帽佔山體高度比例
+          const snowRatio = 0.32;
 
-          // --- 1. 繪製山體左半邊（迎光面） ---
           ctx.fillStyle = m.colorL;
           ctx.beginPath();
           ctx.moveTo(m.x, groundY + 2);
           ctx.lineTo(peakX, peakY);
-          ctx.lineTo(peakX, groundY + 2); // 垂直中線
+          ctx.lineTo(peakX, groundY + 2);
           ctx.closePath(); ctx.fill();
 
-          // --- 2. 繪製山體右半邊（背光面） ---
           ctx.fillStyle = m.colorR;
           ctx.beginPath();
-          ctx.moveTo(peakX, groundY + 2); // 垂直中線
+          ctx.moveTo(peakX, groundY + 2);
           ctx.lineTo(peakX, peakY);
           ctx.lineTo(m.x + m.w, groundY + 2);
           ctx.closePath(); ctx.fill();
 
-          // --- 3. 繪製左半邊雪帽 ---
           ctx.fillStyle = m.snowL;
           ctx.beginPath();
           ctx.moveTo(m.x + m.peakOffset * (1 - snowRatio), groundY - m.h * (1 - snowRatio));
@@ -866,7 +997,6 @@ canvas {
           ctx.lineTo(peakX, groundY - m.h * (1 - snowRatio));
           ctx.closePath(); ctx.fill();
 
-          // --- 4. 繪製右半邊雪帽 ---
           ctx.fillStyle = m.snowR;
           ctx.beginPath();
           ctx.moveTo(peakX, groundY - m.h * (1 - snowRatio));
@@ -875,12 +1005,21 @@ canvas {
           ctx.closePath(); ctx.fill();
         });
       });
-    } else {
-      drawCityBuildings(); // 夜晚繪製都市大樓
-      drawSnow();          // 夜晚繪製雪景
+      ctx.restore();
     }
     
-    // 3. 繪製路面、障礙物、收集物與 UI
+    // 4. 【繪製夜晚大樓】：在夜晚的權重不為 0 時，平滑渲染大樓與投影
+    if (cityAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = cityAlpha; // 控制大樓與投影的淡入淡出
+      drawCityBuildings();
+      ctx.restore();
+    }
+
+    // 5. 【繪製雪花】：只在入夜後渲染漫天飄雪
+    drawSnow();
+    
+    // 6. 【繪製前景物】：地面、障礙物、收集物與 UI
     drawGround();
     drawObstacles();
     drawCollectibles();
