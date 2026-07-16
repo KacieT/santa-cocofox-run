@@ -73,6 +73,21 @@ canvas {
   z-index: 2;
 }
 
+/* 直屏專用的下方提示區（預設隱藏） */
+#portraitAlert {
+  display: none;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  color: var(--snow);
+  border-radius: 8px;
+  padding: 10px 15px;
+  margin-top: 15px;
+  font-size: 13px;
+  text-align: center;
+  max-width: 90%;
+  box-sizing: border-box;
+}
+
 /* 靜音控制按鈕 */
 #muteBtn {
   position: absolute;
@@ -131,45 +146,37 @@ canvas {
 }
 .hidden { display: none !important; }
 
-/* --- 專為手機端設計的旋轉螢幕提示 --- */
-#landscapeAlert {
-  display: none;
-  position: fixed; inset: 0;
-  background: #0b1d3a;
-  color: #fff;
-  z-index: 9999;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 20px;
-}
-#landscapeAlert .phone-icon {
-  font-size: 50px;
-  margin-bottom: 20px;
-  animation: rotatePhone 2s infinite ease-in-out;
-}
-@keyframes rotatePhone {
-  0% { transform: rotate(0deg); }
-  50% { transform: rotate(-90deg); }
-  100% { transform: rotate(0deg); }
+/* ==========================================
+   📱 手機端排版 RWD 優化 (解決問題 1、問題 2)
+   ========================================== */
+
+/* 當處於手機橫屏 (Landscape) 時：高小於 500px 且寬大於高 */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  h1 {
+    display: none !important; /* 隱藏標題，省下垂直空間防止切到地板 */
+  }
+  #hint {
+    margin-top: 5px; /* 緊湊排版 */
+  }
 }
 
-/* 當手機是「直直拿」且螢幕寬度小於高度時，顯示旋轉提示，隱藏遊戲內容 */
-@media screen and (max-aspect-ratio: 13/9) and (max-width: 900px) {
-  #landscapeAlert { display: flex; }
-  h1, #wrap, #hint { display: none !important; }
+/* 當處於手機直屏 (Portrait) 時：寬小於高 且 寬小於 800px */
+@media screen and (max-aspect-ratio: 13/9) and (max-width: 800px) {
+  html, body {
+    justify-content: flex-start; /* 讓內容靠頂部排，而不是死死鎖在中間 */
+    padding-top: 5%;             /* 畫面上移，為下方提示留出空間 */
+  }
+  h1 {
+    font-size: 18px;
+    margin: 10px 0;
+  }
+  #portraitAlert {
+    display: block; /* 秀出直屏專用下方提示 */
+  }
 }
 </style>
 </head>
 <body>
-
-<!-- 直屏時的旋轉提示 -->
-<div id="landscapeAlert">
-  <div class="phone-icon">📱🔄</div>
-  <h2>請將手機旋轉為【橫螢幕】遊玩</h2>
-  <p>橫著玩畫面更大、更舒適，操作更方便喔！</p>
-</div>
 
 <h1>🦊 Coco狐快跑 🦊</h1>
 <div id="wrap">
@@ -187,6 +194,12 @@ canvas {
 </div>
 <div id="hint">💻 電腦版: 空白鍵/↑ 跳躍 · ↓ 下蹲<br>📱 手機版: 點擊【螢幕左側】跳躍 · 按住【螢幕右側】下蹲</div>
 
+<!-- 直屏下方提示區 -->
+<div id="portraitAlert">
+  🔄 <b>推薦旋轉手機橫屏遊玩！</b><br>
+  橫屏會自動放大畫面，視野更寬廣，躲避蟑螂更輕鬆喔！
+</div>
+
 <script>
 (function(){
   const canvas = document.getElementById('game');
@@ -203,7 +216,7 @@ canvas {
 
   let state = 'ready';
   
-  // 速度參數
+  // 速度與物理參數
   let speed = 3.5, baseSpeed = 3.5, gravity = 0.6;
   let score = 0, best = 0, frame = 0;
   let obstacles = [], collectibles = [], snowflakes = [];
@@ -217,14 +230,13 @@ canvas {
   const fps = 60;
   const msPerFrame = 1000 / fps; // 每幀大約 16.67ms
 
-  // --- 【新增：音訊物件初始化】 ---
+  // 音訊物件初始化
   const audio = {
     jump: new Audio('JumpVoiceHeiCoco.m4a'),
     scoreMilestone: new Audio('ScoreVoiceUwaCoco_2.m4a'),
     bgm: new Audio('BgmPadoruCoco.mp4')
   };
 
-  // 設置背景音樂循環播放
   audio.bgm.loop = true;
   let isMuted = false;
   let lastMilestoneScore = 0; // 追蹤上一次達到的 100 分里程碑
@@ -285,9 +297,10 @@ canvas {
     else if(kind==='cone'){ w=40; h=50; y=groundY-h; }
     else { 
       w=55; h=35;
-      // 【核心修改】：調整飛行蟑螂的高度，新增 groundY-55 (低空飛行)
-      // 此高度下，站立高度 (58px) 的狐狸必撞，只有下蹲 (34px) 能避開！
-      const levels=[groundY-55, groundY-95, groundY-135];
+      // 【核心修改】：調整飛行蟑螂的低飛高度 (解決問題 3)
+      // 將最低空的高度從 groundY-55 調整為 groundY-45。
+      // 此高度下，站立的狐狸（判定箱頂部高於 groundY-48）必撞！下蹲（頂部降至 groundY-24）則完美閃過。
+      const levels=[groundY-45, groundY-95, groundY-135];
       y = levels[Math.floor(Math.random()*levels.length)];
     }
     obstacles.push({x: W+20, y, w, h, kind, wing: 0});
@@ -323,10 +336,9 @@ canvas {
     spawnCooldown = Math.floor((minDistancePixels + randomExtraPixels) / speed);
   }
 
-  // --- 【新增：音效播放輔助函數】 ---
   function playSound(sound) {
     if (isMuted) return;
-    sound.currentTime = 0; // 每次重設時間，防止連點時產生的卡頓、延遲
+    sound.currentTime = 0; 
     sound.play().catch(e => console.log("音效播放失敗: ", e));
   }
 
@@ -335,14 +347,14 @@ canvas {
     if(player.onGround && !player.ducking){
       player.vy = -12.2;
       player.onGround = false;
-      playSound(audio.jump); // 播放跳躍音效
+      playSound(audio.jump); 
     }
   }
   
   function duckStart(){ if(state==='running') player.ducking = true; }
   function duckEnd(){ player.ducking = false; }
 
-  // --- 音樂開關交互邏輯 ---
+  // 聲音開關
   function toggleMute() {
     isMuted = !isMuted;
     audio.bgm.muted = isMuted;
@@ -354,7 +366,7 @@ canvas {
     toggleMute();
   }, { passive: false });
 
-  // --- 電腦版鍵盤事件 ---
+  // 電腦版鍵盤事件
   window.addEventListener('keydown', (e)=>{
     if(e.code==='Space' || e.code==='ArrowUp'){ e.preventDefault(); jump(); }
     else if(e.code==='ArrowDown'){ e.preventDefault(); duckStart(); }
@@ -362,7 +374,7 @@ canvas {
   });
   window.addEventListener('keyup', (e)=>{ if(e.code==='ArrowDown') duckEnd(); });
 
-  // --- 手機版觸控（左跳右蹲） ---
+  // 手機版觸控（左跳右蹲）
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     if(state !== 'running') {
@@ -401,11 +413,9 @@ canvas {
   }, { passive: false });
 
   function startGame(){
-    // 解決瀏覽器因安全策略阻擋 BGM 自動播放的問題
     if (!isMuted) {
-      audio.bgm.play().catch(e => console.log("BGM 播放受限，等待玩家點擊。"));
+      audio.bgm.play().catch(e => console.log("BGM 播放受限"));
     }
-    
     resetGame();
     state = 'running';
     overlay.classList.add('hidden');
@@ -426,7 +436,6 @@ canvas {
     score += speed*0.045;
     speed = baseSpeed + Math.sqrt(score) * 0.08;
 
-    // --- 【新增：每滿 100 分音效檢測】 ---
     let currentMilestone = Math.floor(score / 100);
     if (currentMilestone > lastMilestoneScore) {
       lastMilestoneScore = currentMilestone;
@@ -452,6 +461,7 @@ canvas {
     collectibles.forEach(c=>{ c.x -= speed; c.spin += 0.08; });
     collectibles = collectibles.filter(c=> c.x + c.w > -10 && !c.taken);
 
+    // 精準碰撞判定盒
     const hitbox = {x: player.x+12, y: player.y+10, w: player.w-24, h: player.h-16};
 
     for(const o of obstacles){
@@ -554,17 +564,14 @@ canvas {
     }
   }
 
-  // 手機與電腦自適應 RWD 縮放邏輯
+  // 完美的自適應縮放，徹底避免任何螢幕裁切地板的問題
   function resizeGame() {
     const wrap = document.getElementById('wrap');
-    
-    // 獲取螢幕寬度（預留一部分安全邊距）
     const targetWidth = window.innerWidth * 0.95;
     const scale = targetWidth / 800; 
     
     wrap.style.transform = `scale(${scale})`;
 
-    // 計算位置位移
     const marginX = (800 * scale - 800) / 2;
     const marginY = (300 * scale - 300) / 2;
     
