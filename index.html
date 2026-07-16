@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <!-- 禁止手機瀏覽器縮放與滾動，確保觸控滑順 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
-<title>聖誕狐狸大逃亡 Santa Fox Run</title>
+<title>Coco狐快跑</title>
 <style>
 :root{
   --sky-top: #0b1d3a;
@@ -70,7 +70,32 @@ canvas {
   text-align: center;
   padding: 0 10px;
   line-height: 1.5;
+  z-index: 2;
 }
+
+/* 靜音控制按鈕 */
+#muteBtn {
+  position: absolute;
+  top: 15px; right: 15px;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 253, 247, 0.9);
+  border: 2px solid var(--line);
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.1s, background 0.2s;
+}
+#muteBtn:active {
+  transform: scale(0.9);
+}
+
 #overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -105,13 +130,55 @@ canvas {
   background: #f0f4f8; padding: 8px 16px; border-radius: 20px;
 }
 .hidden { display: none !important; }
+
+/* --- 專為手機端設計的旋轉螢幕提示 --- */
+#landscapeAlert {
+  display: none;
+  position: fixed; inset: 0;
+  background: #0b1d3a;
+  color: #fff;
+  z-index: 9999;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
+}
+#landscapeAlert .phone-icon {
+  font-size: 50px;
+  margin-bottom: 20px;
+  animation: rotatePhone 2s infinite ease-in-out;
+}
+@keyframes rotatePhone {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(-90deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* 當手機是「直直拿」且螢幕寬度小於高度時，顯示旋轉提示，隱藏遊戲內容 */
+@media screen and (max-aspect-ratio: 13/9) and (max-width: 900px) {
+  #landscapeAlert { display: flex; }
+  h1, #wrap, #hint { display: none !important; }
+}
 </style>
 </head>
 <body>
+
+<!-- 直屏時的旋轉提示 -->
+<div id="landscapeAlert">
+  <div class="phone-icon">📱🔄</div>
+  <h2>請將手機旋轉為【橫螢幕】遊玩</h2>
+  <p>橫著玩畫面更大、更舒適，操作更方便喔！</p>
+</div>
+
 <h1>🦊 Coco狐快跑 🦊</h1>
 <div id="wrap">
   <canvas id="game" width="800" height="300"></canvas>
   <img id="playerSprite" src="ezgif-CocoFoxSantaRunningTransparent.gif" width="76" height="76">
+  
+  <!-- BGM 開關按鈕 -->
+  <div id="muteBtn">🎵</div>
+
   <div id="overlay">
     <div id="overlayText">按空白鍵 / 點擊左半邊螢幕 開始奔跑</div>
     <button id="startBtn">開始遊戲</button>
@@ -132,10 +199,11 @@ canvas {
   const overlayText = document.getElementById('overlayText');
   const statsDisplay = document.getElementById('statsDisplay');
   const startBtn = document.getElementById('startBtn');
+  const muteBtn = document.getElementById('muteBtn');
 
   let state = 'ready';
   
-  // 速度參數（鎖定 60 FPS 後，這些數值在所有螢幕上將跑得一模一樣！）
+  // 速度參數
   let speed = 3.5, baseSpeed = 3.5, gravity = 0.6;
   let score = 0, best = 0, frame = 0;
   let obstacles = [], collectibles = [], snowflakes = [];
@@ -144,10 +212,22 @@ canvas {
   let spawnCooldown = 0; 
   let poopCount = 0, giftCount = 0;
 
-  // --- 【新增：FPS 控制器變數】 ---
+  // FPS 控制器變數
   let lastTime = performance.now();
   const fps = 60;
   const msPerFrame = 1000 / fps; // 每幀大約 16.67ms
+
+  // --- 【新增：音訊物件初始化】 ---
+  const audio = {
+    jump: new Audio('JumpVoiceHeiCoco.m4a'),
+    scoreMilestone: new Audio('ScoreVoiceUwaCoco_2.m4a'),
+    bgm: new Audio('BgmPadoruCoco.mp4')
+  };
+
+  // 設置背景音樂循環播放
+  audio.bgm.loop = true;
+  let isMuted = false;
+  let lastMilestoneScore = 0; // 追蹤上一次達到的 100 分里程碑
 
   const images = {
     police: new Image(),
@@ -171,6 +251,7 @@ canvas {
 
   function resetGame(){
     speed = baseSpeed; score = 0; frame = 0;
+    lastMilestoneScore = 0;
     obstacles = []; collectibles = []; snowflakes = [];
     poopCount = 0; giftCount = 0;
     player.y = groundY - 58; player.vy = 0;
@@ -202,9 +283,11 @@ canvas {
     let w, h, y;
     if(kind==='police'){ w=50; h=60; y=groundY-h; }
     else if(kind==='cone'){ w=40; h=50; y=groundY-h; }
-    else { // 飛行蟑螂 (高、中、低 三種高度)
+    else { 
       w=55; h=35;
-      const levels=[groundY-50, groundY-95, groundY-135];
+      // 【核心修改】：調整飛行蟑螂的高度，新增 groundY-55 (低空飛行)
+      // 此高度下，站立高度 (58px) 的狐狸必撞，只有下蹲 (34px) 能避開！
+      const levels=[groundY-55, groundY-95, groundY-135];
       y = levels[Math.floor(Math.random()*levels.length)];
     }
     obstacles.push({x: W+20, y, w, h, kind, wing: 0});
@@ -219,7 +302,7 @@ canvas {
     collectibles.push({x: W+20, y, w, h, kind, taken: false, spin: 0});
   }
 
-  // 統一生成控制器：確保存障礙物與收集物有完美的安全間隔
+  // 統一生成控制器
   function manageSpawning() {
     if (spawnCooldown > 0) {
       spawnCooldown--;
@@ -240,16 +323,36 @@ canvas {
     spawnCooldown = Math.floor((minDistancePixels + randomExtraPixels) / speed);
   }
 
+  // --- 【新增：音效播放輔助函數】 ---
+  function playSound(sound) {
+    if (isMuted) return;
+    sound.currentTime = 0; // 每次重設時間，防止連點時產生的卡頓、延遲
+    sound.play().catch(e => console.log("音效播放失敗: ", e));
+  }
+
   function jump(){
     if(state==='ready' || state==='gameover'){ startGame(); return; }
     if(player.onGround && !player.ducking){
       player.vy = -12.2;
       player.onGround = false;
+      playSound(audio.jump); // 播放跳躍音效
     }
   }
   
   function duckStart(){ if(state==='running') player.ducking = true; }
   function duckEnd(){ player.ducking = false; }
+
+  // --- 音樂開關交互邏輯 ---
+  function toggleMute() {
+    isMuted = !isMuted;
+    audio.bgm.muted = isMuted;
+    muteBtn.innerHTML = isMuted ? '🔇' : '🎵';
+  }
+  muteBtn.addEventListener('click', toggleMute);
+  muteBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    toggleMute();
+  }, { passive: false });
 
   // --- 電腦版鍵盤事件 ---
   window.addEventListener('keydown', (e)=>{
@@ -259,7 +362,7 @@ canvas {
   });
   window.addEventListener('keyup', (e)=>{ if(e.code==='ArrowDown') duckEnd(); });
 
-  // --- 手機版觸控優化（左半邊跳躍，右半邊下蹲） ---
+  // --- 手機版觸控（左跳右蹲） ---
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     if(state !== 'running') {
@@ -298,6 +401,11 @@ canvas {
   }, { passive: false });
 
   function startGame(){
+    // 解決瀏覽器因安全策略阻擋 BGM 自動播放的問題
+    if (!isMuted) {
+      audio.bgm.play().catch(e => console.log("BGM 播放受限，等待玩家點擊。"));
+    }
+    
     resetGame();
     state = 'running';
     overlay.classList.add('hidden');
@@ -317,6 +425,13 @@ canvas {
     frame++;
     score += speed*0.045;
     speed = baseSpeed + Math.sqrt(score) * 0.08;
+
+    // --- 【新增：每滿 100 分音效檢測】 ---
+    let currentMilestone = Math.floor(score / 100);
+    if (currentMilestone > lastMilestoneScore) {
+      lastMilestoneScore = currentMilestone;
+      playSound(audio.scoreMilestone);
+    }
 
     const duckH = 34, standH = 58;
     player.h = player.ducking && player.onGround ? duckH : standH;
@@ -429,31 +544,27 @@ canvas {
     drawScore();
   }
 
-  // --- 【核心修改：限制並同步 60 FPS 渲染迴圈】 ---
   function loop(currentTime){
     requestAnimationFrame(loop);
-
-    // 計算自上一次更新以來經過的時間
     const elapsed = currentTime - lastTime;
-
-    // 如果時間大於等於一幀所需的微秒數 (約 16.67ms)
     if (elapsed >= msPerFrame) {
-      // 扣除掉這一幀所用掉的時間（保留多餘的微秒以防時間漂移，保持平滑）
       lastTime = currentTime - (elapsed % msPerFrame);
-
       if(state==='running') update();
       render();
     }
   }
 
-  // 手機版與電腦版自適應 RWD 縮放邏輯
+  // 手機與電腦自適應 RWD 縮放邏輯
   function resizeGame() {
     const wrap = document.getElementById('wrap');
+    
+    // 獲取螢幕寬度（預留一部分安全邊距）
     const targetWidth = window.innerWidth * 0.95;
     const scale = targetWidth / 800; 
     
     wrap.style.transform = `scale(${scale})`;
 
+    // 計算位置位移
     const marginX = (800 * scale - 800) / 2;
     const marginY = (300 * scale - 300) / 2;
     
@@ -469,7 +580,6 @@ canvas {
   resetGame();
   render();
   
-  // 傳入第一個高精度時間戳記啟動迴圈
   requestAnimationFrame((time) => {
     lastTime = time;
     loop(time);
