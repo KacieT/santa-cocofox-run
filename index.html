@@ -228,8 +228,8 @@ canvas {
   // --- 【Debug 工具：如果你想在畫面上直接看見判定盒，請改成 true】 ---
   const DEBUG_MODE = false; 
   // === 【測試小工具：自訂起始分數直達車】 ===
-  const START_SCORE_TEST = false; // 💡 測試時改成 true，想正常玩時改成 false
-  const TEST_START_SCORE = 1480;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
+  const START_SCORE_TEST = true; // 💡 測試時改成 true，想正常玩時改成 false
+  const TEST_START_SCORE = 880;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
 
   const overlay = document.getElementById('overlay');
   const overlayText = document.getElementById('overlayText');
@@ -551,32 +551,41 @@ canvas {
   window.addEventListener('keyup', (e)=>{ if(e.code==='ArrowDown') duckEnd(); });
 
   // 手機版觸控（左跳右蹲）
-  canvas.addEventListener('touchstart', (e) => {
+  // === 【優化：擴大觸控範圍至整個網頁視窗 window】 ===
+  window.addEventListener('touchstart', (e) => {
+    // 💡 核心防誤觸：如果玩家點擊的是左上角的靜音按鈕（muteBtn）或開始按鈕（startBtn），
+    // 則直接放行，交給它們原本的點擊事件處理，不觸發跳躍或下蹲
+    if (e.target.closest('#muteBtn') || e.target.closest('#startBtn')) return;
+
     e.preventDefault();
     if(state !== 'running') {
       startGame();
       return;
     }
     
-    const rect = canvas.getBoundingClientRect();
-    const touchX = e.touches[0].clientX - rect.left;
-    const canvasWidth = rect.width;
+    // 💡 因為綁定在 window 上，我們改用 e.touches[0].clientX 取得相對於整個手機螢幕的絕對座標
+    const touchX = e.touches[0].clientX;
+    const screenWidth = window.innerWidth;
 
-    if (touchX < canvasWidth / 2) {
+    // 將整個手機螢幕一分為二：點擊螢幕左半邊跳躍，按住螢幕右半邊下蹲
+    if (touchX < screenWidth / 2) {
       jump(); 
     } else {
       duckStart(); 
     }
   }, { passive: false });
 
-  canvas.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    if (e.touches.length === 0) {
+  window.addEventListener('touchend', (e) => {
+    // 💡 如果在遊戲進行中，所有手指都離開螢幕了，就結束下蹲
+    if (state === 'running' && e.touches.length === 0) {
+      e.preventDefault();
       duckEnd();
     }
   }, { passive: false });
 
-  canvas.addEventListener('mousedown', (e) => {
+  // === 【優化：電腦版網頁滑鼠點擊容錯】 ===
+  window.addEventListener('mousedown', (e) => {
+    if (e.target.closest('#muteBtn') || e.target.closest('#startBtn')) return;
     if (state === 'running') {
       jump();
     }
