@@ -400,7 +400,7 @@ canvas {
   const audio = {
     jump: new Audio('JumpVoiceHeiCoco.m4a'),
     scoreMilestone: new Audio('ScoreVoiceUwaCoco_2.m4a'),
-    bgm: new Audio('BgmPadoruCoco.mp4'),
+    bgm: new Audio('BgmPadoruCoco.mp3'),
     // 🌟 新增：收集物與死亡音效
     getPoop: new Audio('PoopVoiceChifanCoco.m4a'),
     getGift: new Audio('PresentVoiceYiaoCoco.m4a'),
@@ -1192,6 +1192,11 @@ canvas {
   resetGame();
   render();
   
+  // 🌟 終極合體保險：將傳統 click 與行動端 touchstart 雙重綁定到最底部的解鎖函數上！
+  // 焊在整份腳本的最末端執行，100% 確保 Brave、Chrome、Safari 行動端點擊時，音訊權限全局開放！
+  startBtn.addEventListener('click', handleStartButtonClick);
+  startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
+
   requestAnimationFrame((time) => {
     lastTime = time;
     loop(time);
