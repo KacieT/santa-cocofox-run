@@ -213,6 +213,8 @@ canvas {
   let sceneCurrent = 'snow'; // 當前場景狀態
   let sceneNext = 'snow'; // 即將切換的下一個場景狀態
   let lastSceneNext = 'snow'; // === 【新增：用於單次觸發膠捲切換起跑點的紀錄變數】 ===
+  // === 【新增：每100分局部金黃呼吸燈控制變數】 ===
+  let scoreBreathTimer = 0; // 剩餘呼吸動畫幀數
 
   // 顏色線性插值 (Lerp) 演算法（用於平滑融合天空顏色、字體顏色）
   function lerpColor(color1, color2, weight) {
@@ -228,7 +230,7 @@ canvas {
   // --- 【Debug 工具：如果你想在畫面上直接看見判定盒，請改成 true】 ---
   const DEBUG_MODE = false; 
   // === 【測試小工具：自訂起始分數直達車】 ===
-  const START_SCORE_TEST = true; // 💡 測試時改成 true，想正常玩時改成 false
+  const START_SCORE_TEST = false; // 💡 測試時改成 true，想正常玩時改成 false
   const TEST_START_SCORE = 880;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
 
   const overlay = document.getElementById('overlay');
@@ -641,10 +643,17 @@ canvas {
     score += speed*0.045;
     speed = baseSpeed + Math.sqrt(score) * 0.08;
 
+    // === 【優化：偵測每100分里程碑，同步觸發音效與UI字體金黃呼吸燈】 ===
     let currentMilestone = Math.floor(score / 100);
     if (currentMilestone > lastMilestoneScore) {
       lastMilestoneScore = currentMilestone;
       playSound(audio.scoreMilestone);
+      scoreBreathTimer = 60; // 🌟 啟動呼吸燈，持續 60 幀（約 1 秒鐘，完成兩次優雅的淡入淡出循環）
+    }
+
+    // 🌟 如果呼吸燈正在播放，每幀默默遞減 1
+    if (scoreBreathTimer > 0) {
+      scoreBreathTimer--;
     }
 
     // === 【計算晝夜過渡進度（2000分大循環）】 ===
@@ -981,25 +990,44 @@ canvas {
   }
 
   // === 【重構：支援字色平滑過渡的 drawScore 函數】 ===
+  // === 【重構：支援「當前分數行」金黃呼吸燈提示的 drawScore 函數】 ===
   function drawScore(){
-    // 依據晝夜進度，平滑融合字體顏色：白天為深藍 (#1c3f66)，夜晚為溫和白 (#fffdf7)
-    let textColor = '#1c3f66';
+    // 1. 依據晝夜進度，平滑融合基礎字體顏色：白天為深藍 (#1c3f66)，夜晚為溫和白 (#fffdf7)
+    let baseTextColor = '#1c3f66';
     const snowColor = '#1c3f66', cityColor = '#fffdf7';
 
     if (sceneCurrent === 'snow' && sceneNext === 'snow') {
-      textColor = snowColor;
+      baseTextColor = snowColor;
     } else if (sceneCurrent === 'city' && sceneNext === 'city') {
-      textColor = cityColor;
+      baseTextColor = cityColor;
     } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
-      textColor = lerpColor(snowColor, cityColor, sceneProgress);
+      baseTextColor = lerpColor(snowColor, cityColor, sceneProgress);
     } else {
-      textColor = lerpColor(cityColor, snowColor, sceneProgress);
+      baseTextColor = lerpColor(cityColor, snowColor, sceneProgress);
     }
 
-    ctx.fillStyle = textColor;
+    // 2. 🌟 核心呼吸燈演算法：利用正弦波 (Math.sin) 產生絲滑的顏色插值權重
+    let currentScoreColor = baseTextColor;
+    if (scoreBreathTimer > 0) {
+      const targetColor = '#ffd166'; // 使用前排大樓窗戶最內斂溫暖的璀璨金黃霓虹色
+      
+      // 利用 Math.sin 配合計時器，把數值對應成一條平滑起伏的波浪（介於 0 到 1 之間）
+      // 乘以 0.2 可以將正弦波頻率控制在「1秒鐘優雅呼吸起伏兩下」的舒適速度
+      const breathWeight = Math.abs(Math.sin((60 - scoreBreathTimer) * 0.2));
+      
+      // 使用平滑的權重，將基礎字色與金黃色無縫融合
+      currentScoreColor = lerpColor(baseTextColor, targetColor, breathWeight);
+    }
+
     ctx.font = 'bold 14px "Courier New", monospace';
+    
+    // 💡 僅讓「當前分數」這一行套用平滑的呼吸燈顏色 (currentScoreColor)
+    ctx.fillStyle = currentScoreColor;
     ctx.textAlign = 'right';
     ctx.fillText('分數 ' + Math.floor(score).toString().padStart(5,'0'), W-16, 26);
+    
+    // 💡 其餘「最高分數」與「收集物數量」維持 100% 靜止，原色呈現，絕不干擾玩家視線
+    ctx.fillStyle = baseTextColor;
     ctx.fillText('最高 ' + best.toString().padStart(5,'0'), W-16, 44);
     ctx.fillText('💩x' + poopCount + '  🎁x' + giftCount, W-16, 62);
     ctx.textAlign = 'left';
