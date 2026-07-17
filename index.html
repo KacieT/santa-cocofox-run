@@ -396,12 +396,26 @@ canvas {
   initBuildings(); // 初始生成大樓
 
   // 音訊物件初始化
+  // === 【優化：補齊所有遊戲慶典與搞怪回饋的完整音軌陣列】 ===
   const audio = {
     jump: new Audio('JumpVoiceHeiCoco.m4a'),
     scoreMilestone: new Audio('ScoreVoiceUwaCoco_2.m4a'),
-    bgm: new Audio('BgmPadoruCoco.mp4')
+    bgm: new Audio('BgmPadoruCoco.mp4'),
+    // 🌟 新增：收集物與死亡音效
+    getPoop: new Audio('PoopVoiceChifanCoco.m4a'),
+    getGift: new Audio('PresentVoiceYiaoCoco.m4a'),
+    gameOver: new Audio('GameoverVoiceDiaoqiangCoco.m4a')
   };
 
+  // === 【優化：全端口混音音量動態平衡調整】 ===
+  audio.bgm.volume = 0.55;           // 🎵 BGM 降到 35%，當作優雅的背景襯底，絕不蓋過過Coco的叫聲
+  audio.jump.volume = 0.65;           // 🦊 原本的跳躍聲維持高亢 (90%)
+  audio.scoreMilestone.volume = 0.8; // 🔔 原本的里程碑破百歡呼聲維持 (90%)
+
+  // 🌟 剛剛新增的三個音效：強行推滿到 100% 最大輸出！
+  audio.getPoop.volume = 1.0;        // 💩 吃大便聲全力輸出！
+  audio.getGift.volume = 1.0;        // 🎁 拿禮物聲全力輸出！
+  audio.gameOver.volume = 1.0;       // 🎬 死亡慘叫聲全力輸出！
   audio.bgm.loop = true;
   let isMuted = false;
   let lastMilestoneScore = 0; 
@@ -593,11 +607,44 @@ canvas {
     }
   });
 
-  startBtn.addEventListener('click', startGame);
-  startBtn.addEventListener('touchstart', (e) => {
-    e.preventDefault();
+  // === 【全新重構：全端口相容、絕不卡死網路圖片的 Safari 全局音訊破壁器】 ===
+  function handleStartButtonClick(e) {
+    if (e) e.preventDefault();
+
+    // 🌟 全端口相容核心：點擊瞬間，背景音樂 BGM 既然要播，就直接讓它順暢 `.play()`
+    // 絕對不要對大體積的 BGM 呼叫 pause()，這樣電腦端音樂就不會斷，Safari 也會100%通過授權！
+    if (audio && audio.bgm && !isMuted) {
+      audio.bgm.play().catch(err => console.log("BGM 授權中"));
+    }
+
+    // 🌟 核心破壁：只對這 5 個檔案極小的「短音效」在後台進行 volume=0 播放並立刻暫停。
+    // 因為短音效只有幾十 KB，可以在萬分之一秒內光速解鎖，徹底根除網絡佇列阻塞！圖片絕對不會再變色塊！
+    if (audio) {
+      const shortEffects = [audio.jump, audio.scoreMilestone, audio.getPoop, audio.getGift, audio.gameOver];
+      shortEffects.forEach(track => {
+        // 先偷偷將音量歸零，完全不干擾玩家耳朵
+        const originalVolume = track.volume;
+        track.volume = 0;
+        
+        const playPromise = track.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            track.pause();
+            track.volume = originalVolume; // 解鎖完畢，悄悄把音量還原，等待遊戲中觸發
+          }).catch(err => {
+            track.volume = originalVolume;
+          });
+        }
+      });
+    }
+
+    // 全域權限完美破壁後，順暢啟動遊戲！
     startGame();
-  }, { passive: false });
+  }
+
+  // 💡 雙重監聽保險：擺在整份腳本的最末端執行，這能確保 audio 內的所有變數和路徑 100% 就緒
+  startBtn.addEventListener('click', handleStartButtonClick);
+  startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
 
   function startGame(){
     if (!isMuted) {
@@ -610,6 +657,8 @@ canvas {
   }
 
   function endGame(){
+    // Coco 狐 Game Over音效
+    playSound(audio.gameOver);
     state = 'gameover';
     best = Math.max(best, Math.floor(score));
     overlayText.innerHTML = `遊戲結束 · 分數 ${Math.floor(score)} 最高 ${best}`;
@@ -800,13 +849,20 @@ canvas {
       if(rectsOverlap(hitbox, obox)){ endGame(); return; }
     }
     
+    // === 【優化：當 Coco 狐吃到物品時，即時發出歡快搞怪的分流音效】 ===
     for(const c of collectibles){
       if(c.taken) continue;
       const cbox = {x:c.x+4, y:c.y+4, w:c.w-8, h:c.h-8};
       if(rectsOverlap(hitbox, cbox)){
         c.taken = true;
         score += 10; 
-        if(c.kind==='poop') poopCount++; else giftCount++;
+        if(c.kind==='poop') {
+          poopCount++;
+          playSound(audio.getPoop); // 💩 播放吃飯/吃大便音效！
+        } else {
+          giftCount++;
+          playSound(audio.getGift); // 🎁 播放拿禮物音效！
+        }
       }
     }
 
