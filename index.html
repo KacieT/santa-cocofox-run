@@ -212,6 +212,7 @@ canvas {
   let sceneProgress = 0; // 當前過渡進度（0~1）
   let sceneCurrent = 'snow'; // 當前場景狀態
   let sceneNext = 'snow'; // 即將切換的下一個場景狀態
+  let lastSceneNext = 'snow'; // === 【新增：用於單次觸發膠捲切換起跑點的紀錄變數】 ===
 
   // 顏色線性插值 (Lerp) 演算法（用於平滑融合天空顏色、字體顏色）
   function lerpColor(color1, color2, weight) {
@@ -228,7 +229,7 @@ canvas {
   const DEBUG_MODE = false; 
   // === 【測試小工具：自訂起始分數直達車】 ===
   const START_SCORE_TEST = false; // 💡 測試時改成 true，想正常玩時改成 false
-  const TEST_START_SCORE = 880;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
+  const TEST_START_SCORE = 1480;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
 
   const overlay = document.getElementById('overlay');
   const overlayText = document.getElementById('overlayText');
@@ -255,18 +256,24 @@ canvas {
   // --- 【核心修改 3：白雲數據設計】 ---
   // 每朵雲是由「一組具有相對座標的圓形」組合而成，呈現出多個圓形重疊的複雜、鬆軟蓬鬆形狀
   let clouds = [];
-  function initClouds() {
+  // === 【優化：白雲初始化，支援右側排隊出生機制】 ===
+  function initClouds(startX = null) {
     clouds = [];
     for (let i = 0; i < 3; i++) {
       const baseWidth = 70 + Math.random() * 30;
+      
+      // 💡 如果有傳入 startX（破曉切換時），讓雲朵在畫布右側外（startX）每隔 250px 排隊出生
+      // 💡 如果是 null（開局重置時），則維持原本的畫布內隨機隨機分佈
+      const cloudX = (startX !== null) ? (startX + i * 250) : (Math.random() * W);
+      
       clouds.push({
-        x: Math.random() * W,
+        x: cloudX,
         y: 25 + Math.random() * 40,
         w: baseWidth,
         h: 20,
         speed: 0.12 + Math.random() * 0.15,
         
-        // 生成這朵雲內部的重疊圓形粒子（相對圓心座標與半徑）
+        // 生成這朵雲內部的重疊圓形粒子
         circles: [
           { rx: baseWidth * 0.25, ry: -5,  r: 16 + Math.random() * 6 },  // 左側雲頂
           { rx: baseWidth * 0.5,  ry: -14, r: 22 + Math.random() * 8 },  // 中央大雲頂
@@ -280,43 +287,44 @@ canvas {
   // === 【新增：連綿不絕的幾何三角形雪山數據結構】 ===
   // === 【重構：雙層立體摺紙幾何山脈數據結構】 ===
   let mountains = [];
-  function initMountains() {
+  function initMountains(startX = null) {
     mountains = [];
     
-    // 1. 生成後排遠山（更高、更寬、更淡、速度更慢）
-    let farX = -100;
-    while (farX < W + 200) {
+    // 1. 生成後排遠山
+    let farX = startX !== null ? startX : -100;
+    const farLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (farX < farLimit) {
       const width = 160 + Math.random() * 120;
       const height = 55 + Math.random() * 35;
-      const peakOffset = width * (0.2 + Math.random() * 0.6); // 大幅隨機歪斜
+      const peakOffset = width * (0.2 + Math.random() * 0.6); 
       mountains.push({
         x: farX, w: width, h: height, peakOffset: peakOffset,
-        layer: 'far', // 標記為遠山
-        scrollSpeed: 0.03, // 極慢速視差
-        colorL: '#cce2fc', colorR: '#b4d4f7', // 遠山左亮右暗配色
+        layer: 'far', 
+        scrollSpeed: 0.03, 
+        colorL: '#cce2fc', colorR: '#b4d4f7', 
         snowL: 'rgba(255,255,255,0.85)', snowR: 'rgba(240,246,255,0.85)'
       });
-      farX += width * (0.6 + Math.random() * 0.3); // 密集交疊
+      farX += width * (0.6 + Math.random() * 0.3); 
     }
 
-    // 2. 生成前排近山（矮一些、更錯落、顏色稍深、速度快一倍）
-    let nearX = -50;
-    while (nearX < W + 200) {
+    // 2. 生成前排近山
+    let nearX = startX !== null ? startX : -50;
+    const nearLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (nearX < nearLimit) {
       const width = 110 + Math.random() * 90;
       const height = 35 + Math.random() * 25;
-      const peakOffset = width * (0.25 + Math.random() * 0.5); // 隨機歪斜山頂
+      const peakOffset = width * (0.25 + Math.random() * 0.5); 
       mountains.push({
         x: nearX, w: width, h: height, peakOffset: peakOffset,
-        layer: 'near', // 標記為近山
-        scrollSpeed: 0.06, // 稍快視差，與遠山形成3D層次
-        colorL: '#add2fa', colorR: '#92c1f3', // 近山左亮右暗配色
+        layer: 'near', 
+        scrollSpeed: 0.06, 
+        colorL: '#add2fa', colorR: '#92c1f3', 
         snowL: 'rgba(255,255,255,0.95)', snowR: 'rgba(230,240,255,0.95)'
       });
-      // 近山有較高機率斷開，露出遠山
       if (Math.random() < 0.25) {
-        nearX += width + (40 + Math.random() * 80); // 形成漂亮的斷開山谷
+        nearX += width + (40 + Math.random() * 80); 
       } else {
-        nearX += width * 0.7; // 連綿交疊
+        nearX += width * 0.7; 
       }
     }
   }
@@ -327,27 +335,29 @@ canvas {
   // === 【重構：方案 A 邊緣霓虹高光都市大樓數據結構】 ===
   // === 【重構：方案 1 剪紙重疊陰影都市大樓數據結構】 ===
   let cityBuildings = [];
-  function initBuildings() {
+  function initBuildings(startX = null) {
     cityBuildings = [];
     
-    // 1. 生成後排遠景大樓（更高、更寬、無窗戶、速度極慢，作為更深沉的背景剪影）
-    let farX = -50;
-    while (farX < W + 200) {
+    // 1. 生成後排遠景大樓
+    let farX = startX !== null ? startX : -50;
+    const farLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (farX < farLimit) {
       const width = 80 + Math.random() * 90;
       const height = 110 + Math.random() * 90;
       cityBuildings.push({
         x: farX, w: width, h: height,
         layer: 'far', 
         scrollSpeed: 0.08, 
-        mainColor: '#0a0914', // 遠景大樓主體色更深，自然融入夜空
+        mainColor: '#0a0914', 
         windows: [] 
       });
       farX += width - 10;
     }
 
-    // 2. 生成前排近景大樓（高低錯落、配置彩色霓虹窗戶、速度稍快）
-    let nearX = 0;
-    while (nearX < W + 200) {
+    // 2. 生成前排近景大樓
+    let nearX = startX !== null ? startX : 0;
+    const nearLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (nearX < nearLimit) {
       const width = 55 + Math.random() * 65;
       const height = 80 + Math.random() * 80;
       
@@ -375,7 +385,7 @@ canvas {
         x: nearX, w: width, h: height,
         layer: 'near', 
         scrollSpeed: 0.15, 
-        mainColor: '#121424', // 前排近景大樓主體色（高級黑藍灰色）
+        mainColor: '#121424', 
         windows: windows
       });
       nearX += width - 5; 
@@ -416,23 +426,29 @@ canvas {
   };
 
   function resetGame(){
-    // 💡 判斷是否開啟起跑分數測試，若是，則套用測試分數，否則從 0 開始
     score = START_SCORE_TEST ? TEST_START_SCORE : 0;
-    
-    // 依據分數公式，自動等比例同步拉高遊戲的起始速度，確保物理滾動與速度不穿幫
     speed = baseSpeed + Math.sqrt(score) * 0.08; 
     
     frame = 0;
-    lastMilestoneScore = Math.floor(score / 100); // 同步里程碑音效檢測起點
+    lastMilestoneScore = Math.floor(score / 100); 
     obstacles = []; collectibles = []; snowflakes = [];
     poopCount = 0; giftCount = 0;
     player.y = groundY - 58; player.vy = 0;
     player.ducking = false; player.onGround = true;
     
     spawnCooldown = 60; 
-    initBuildings();
-    initClouds();
-    initMountains();
+
+    // 依據開局分數，決定背景初始化狀態
+    const loopScore = Math.floor(score) % 2000;
+    if (loopScore >= 1000 && loopScore < 1900) {
+      initBuildings();
+      initMountains(-9999); // 白天背景放到極左側隱藏
+    } else {
+      initMountains();
+      initClouds();
+      initBuildings(-9999); // 夜晚背景放到極左側隱藏
+    }
+    lastSceneNext = loopScore < 1000 ? 'snow' : 'city';
   }
 
   // 雪花生成邏輯
@@ -622,7 +638,7 @@ canvas {
       playSound(audio.scoreMilestone);
     }
 
-    // === 【步驟二核心：在 update 頂部計算 2000分大循環的晝夜過渡進度】 ===
+    // === 【計算晝夜過渡進度（2000分大循環）】 ===
     const loopScore = Math.floor(score) % 2000;
     if (loopScore < 900) {
       sceneProgress = 0; sceneCurrent = 'snow'; sceneNext = 'snow';
@@ -634,7 +650,20 @@ canvas {
       sceneProgress = (loopScore - 1900) / 100; sceneCurrent = 'city'; sceneNext = 'snow';
     }
 
-    // 💡 保留：狐狸高度物理屬性（絕對不能刪！）
+    // 💡 偵測場景轉換起點！當剛跨越臨界點時，在右側（W）初始化新背景
+    // === 【優化：移除 1900 分的山脈與雲朵重置，保留其原本的滾動連續性】 ===
+    if (sceneNext !== lastSceneNext) {
+      if (sceneNext === 'city') {
+        // 黃昏 900 分：都市大樓群正常在畫布右側外（W + 50）排隊生成並開始滾動進場
+        initBuildings(W + 50);
+      } else if (sceneNext === 'snow') {
+        // 🌟 破曉 1900 分：我們【不要】呼叫 initMountains 和 initClouds！
+        // 讓原本在黑夜中默默滾動的山脈與雲朵流暢地繼續往左前進、自然接管畫面，徹底根除消失閃現 Bug。
+      }
+      lastSceneNext = sceneNext;
+    }
+
+    // 保留：狐狸高度物理屬性
     const duckH = 34, standH = 58;
     player.h = player.ducking && player.onGround ? duckH : standH;
     player.y += player.vy;
@@ -642,20 +671,25 @@ canvas {
     const floorY = groundY - player.h;
     if(player.y >= floorY){ player.y = floorY; player.vy = 0; player.onGround = true; }
 
-    // 💡 1. 雙層雪山在後台默默保持滾動更新（不分晝夜）
+    // 💡 1. 雙層雪山滾動更新（後台不分晝夜默默推進）
     mountains.forEach(m => {
       m.x -= (speed * m.scrollSpeed);
       if (m.x + m.w < -100) {
-        let maxRight = -100;
-        mountains.forEach(mt => {
-          if(mt.layer === m.layer && mt.x > maxRight) maxRight = mt.x;
-        });
-        m.x = maxRight + m.w * (m.layer === 'far' ? 0.7 : 0.75);
+        // 膠捲核心：只有在下個場景依然是白天雪地時，滑出的雪山才循環回右側
+        if (sceneNext === 'snow') {
+          let maxRight = -100;
+          mountains.forEach(mt => {
+            if(mt.layer === m.layer && mt.x > maxRight) maxRight = mt.x;
+          });
+          m.x = maxRight + m.w * (m.layer === 'far' ? 0.7 : 0.75);
+        } else {
+          // 入夜過渡中：滑出左側邊界的雪山直接移走不回頭
+          m.x = -9999;
+        }
       }
     });
 
-    // 💡 2. 白雲在後台默默保持滾動更新（不分晝夜）
-    if (clouds.length === 0) initClouds();
+    // 💡 2. 白雲滾動更新（永遠保持自然的循環滾動更新，不分晝夜，永不沒收與重置）
     clouds.forEach(c => {
       c.x -= c.speed;
       if (c.x + c.w < -30) {
@@ -664,30 +698,75 @@ canvas {
       }
     });
 
-    // 💡 3. 都市背景大樓在後台默默保持滾動更新（不分晝夜）
+    // 💡 3. 都市背景大樓更新（前排 1900 退場，後排 1600 提前截流）
     cityBuildings.forEach(b => {
       b.x -= (speed * b.scrollSpeed);
+    });
+
+    const currentLoopScore = Math.floor(score) % 2000;
+
+    cityBuildings.forEach(b => {
       if (b.x + b.w < -100) {
-        let maxRight = W;
-        cityBuildings.forEach(bt => {
-          if (bt.layer === b.layer && bt.x > maxRight) maxRight = bt.x;
-        });
-        b.x = maxRight + b.w - 5;
+        // 判定這棟大樓滑出左邊界後，是否要重新在右側循環拼接出生：
+        let shouldWrap = false;
+
+        if (b.layer === 'far') {
+          // 1. 後排慢速大樓：只有在夜晚 1000~1600 分之間才循環生成，1600 後提前截流
+          if (currentLoopScore >= 1000 && currentLoopScore < 1600) {
+            shouldWrap = true;
+          }
+        } else {
+          // 2. 前排快速大樓：維持原版，在整個黑夜 1000~1900 分之間都正常循環，1900 破曉才退場
+          if (currentLoopScore >= 1000 && currentLoopScore < 1900) {
+            shouldWrap = true;
+          }
+        }
+
+        if (shouldWrap) {
+          // 執行右側循環拼接
+          let maxRight = W;
+          cityBuildings.forEach(bt => {
+            if (bt.layer === b.layer && bt.x > maxRight) maxRight = bt.x;
+          });
+          b.x = maxRight + b.w - 5;
+        } else {
+          // 退場：滑出左邊界的大樓不再循環，移至極左側放行舞台
+          b.x = -9999;
+        }
       }
     });
 
-    // 💡 4. 雪花更新：只在入夜後（sceneCurrent === 'city' 或 sceneNext === 'city'）才在空中落下
-    const relativeScore = Math.floor(score) % 2000;
-    const isNightTime = relativeScore >= 900 && relativeScore < 2000; // 包含過渡期
-    if (isNightTime) {
-      snowflakes.forEach(s => { s.y += s.vy; s.x += s.drift; });
-      snowflakes = snowflakes.filter(s => s.y < groundY + 10);
-      if (Math.random() < 0.35) spawnSnow(false);
-    } else {
-      snowflakes = []; // 白天雪花融化
+    // 破曉 1900 一到，主動將右側外尚未露臉的大樓過濾清除，防止新大樓再進場
+    // 🌟 修正黃昏秒殺 Bug：只在破曉退場期 (1900~2000分) 與純白天 (0~900分) 才沒收右側外的大樓。
+    // 在黃昏過渡期 (900~1000分) 時放行右側出生的大樓順暢滑入螢幕。
+    if (currentLoopScore >= 1900 || currentLoopScore < 900) {
+      cityBuildings = cityBuildings.filter(b => b.x < W);
     }
 
-    // 💡 保留：生成與障礙物/收集物碰撞檢測
+    // 🌟 修正前排退場太晚 Bug：當剛跨入 1900 分破曉的那一瞬間，
+    // 直接將已經在畫面右側外面排隊、看不見的前排大樓尾巴一刀切斷！
+    // 這樣前排大樓就沒有了長火車尾的累贅，能以 0.15 的快速最準時地在 2050 分前自然走光。
+    if (currentLoopScore === 1900) {
+      cityBuildings = cityBuildings.filter(b => b.x < W);
+    }
+
+    // 💡 4. 雪花更新：實現「雪花自然落盡」效果
+    const relativeScore = Math.floor(score) % 2000;
+    // 只有在夜晚 (900~1900) 以及破曉過渡前半段 (1900~1950) 才會「生成」新雪花
+    const shouldSpawnSnow = relativeScore >= 900 && relativeScore < 1950; 
+    
+    // 只要畫面上還有雪花，就持續更新它們的位置，讓它們自然飄落出境
+    if (snowflakes.length > 0 || shouldSpawnSnow) {
+      snowflakes.forEach(s => { s.y += s.vy; s.x += s.drift; });
+      snowflakes = snowflakes.filter(s => s.y < groundY + 10);
+      
+      // 只有在生成區間內，才隨機產生新雪花
+      if (shouldSpawnSnow && Math.random() < 0.35) {
+        spawnSnow(false);
+      }
+    }
+
+    // 保留：生成與障礙物/收集物碰撞檢測
     manageSpawning();
 
     obstacles.forEach(o=>{ o.x -= speed; if(o.kind==='roach') o.wing += 0.4; });
@@ -696,16 +775,13 @@ canvas {
     collectibles.forEach(c=>{ c.x -= speed; c.spin += 0.08; });
     collectibles = collectibles.filter(c=> c.x + c.w > -10 && !c.taken);
 
-    // 取得精準判定盒
     const hitbox = getPlayerHitbox();
 
-    // 障礙物碰撞檢測
     for(const o of obstacles){
       const obox = {x:o.x+6, y:o.y+6, w:o.w-12, h:o.h-12};
       if(rectsOverlap(hitbox, obox)){ endGame(); return; }
     }
     
-    // 收集物碰撞檢測
     for(const c of collectibles){
       if(c.taken) continue;
       const cbox = {x:c.x+4, y:c.y+4, w:c.w-8, h:c.h-8};
@@ -724,18 +800,28 @@ canvas {
   }
 
   // 天空背景漸層渲染
+  // === 【修改：支援 2000 分大循環平滑漸變的天空渲染】 ===
   function drawSky() {
-    const theme = getTheme();
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    if (theme === 'snow') {
-      // 白天：溫馨的北歐冬日破曉晴空色
-      grad.addColorStop(0, '#a1c4fd');
-      grad.addColorStop(1, '#c2e9fb');
+    const snowTop = '#a1c4fd', snowBot = '#c2e9fb'; // 白天天空
+    const cityTop = '#0d081f', cityBot = '#1a103c'; // 夜晚天空
+    let topColor, bottomColor;
+
+    // 依據晝夜進度，即時用 lerpColor 計算出當前的過渡天色
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      topColor = snowTop; bottomColor = snowBot;
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      topColor = cityTop; bottomColor = cityBot;
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      topColor = lerpColor(snowTop, cityTop, sceneProgress);
+      bottomColor = lerpColor(snowBot, cityBot, sceneProgress);
     } else {
-      // 夜晚：深邃的都市霓虹夜空色
-      grad.addColorStop(0, '#0d081f'); 
-      grad.addColorStop(1, '#1a103c');
+      topColor = lerpColor(cityTop, snowTop, sceneProgress);
+      bottomColor = lerpColor(cityBot, snowBot, sceneProgress);
     }
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, topColor);
+    grad.addColorStop(1, bottomColor);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
   }
@@ -918,108 +1004,63 @@ canvas {
   }
 
   // === 【全新重構：2000分晝夜交替大循環 render 函數】 ===
+  // === 【精簡：膠捲播放無縫背景渲染 render 函數】 ===
   function render(){
     ctx.clearRect(0,0,W,H);
     
-    // 1. 【天空過渡】：利用顏色的插值演算法，計算出當前最自然的天空過渡漸層色
-    const snowTop = '#a1c4fd', snowBot = '#c2e9fb'; // 白天天空
-    const cityTop = '#0d081f', cityBot = '#1a103c'; // 夜晚天空
-    let topColor, bottomColor;
-
-    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
-      topColor = snowTop; bottomColor = snowBot;
-    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
-      topColor = cityTop; bottomColor = cityBot;
-    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
-      topColor = lerpColor(snowTop, cityTop, sceneProgress);
-      bottomColor = lerpColor(snowBot, cityBot, sceneProgress);
-    } else {
-      topColor = lerpColor(cityTop, snowTop, sceneProgress);
-      bottomColor = lerpColor(cityBot, snowBot, sceneProgress);
-    }
-
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, topColor);
-    grad.addColorStop(1, bottomColor);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    // 1. 繪製平滑漸變天空 (已在 drawSky 內部進行平滑插值計算)
+    drawSky();
     
-    // 2. 【計算遠景透明度】：計算白天雪山雲朵與夜晚大樓此時各別的透明度權重 (0 ~ 1)
-    let snowAlpha = 0, cityAlpha = 0;
-    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
-      snowAlpha = 1; cityAlpha = 0;
-    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
-      snowAlpha = 0; cityAlpha = 1;
-    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
-      snowAlpha = 1 - sceneProgress; // 白天物件漸漸淡出
-      cityAlpha = sceneProgress;     // 夜晚大樓漸漸淡入
-    } else {
-      snowAlpha = sceneProgress;     // 白天物件漸漸淡入
-      cityAlpha = 1 - sceneProgress; // 夜晚大樓漸漸淡出
-    }
-    
-    // 3. 【繪製白天物件】：在白天的權重不為 0 時，平滑渲染白雲與摺紙雪山
-    if (snowAlpha > 0) {
-      ctx.save();
-      ctx.globalAlpha = snowAlpha; // 控制雪山與雲朵的淡入淡出
-      
-      // A. 繪製蓬鬆雲朵
-      drawClouds();
+    // 2. 繪製白天雪山與雲朵
+    drawClouds();
 
-      // B. 繪製幾何立體摺紙雪山
-      const layersOrder = ['far', 'near'];
-      layersOrder.forEach(layerTag => {
-        mountains.forEach(m => {
-          if (m.layer !== layerTag) return;
+    const layersOrder = ['far', 'near'];
+    layersOrder.forEach(layerTag => {
+      mountains.forEach(m => {
+        if (m.layer !== layerTag) return;
+        if (m.x < -200 || m.x > W + 200) return; // 視窗剪裁
 
-          const peakX = m.x + m.peakOffset;
-          const peakY = groundY - m.h;
-          const snowRatio = 0.32;
+        const peakX = m.x + m.peakOffset;
+        const peakY = groundY - m.h;
+        const snowRatio = 0.32;
 
-          ctx.fillStyle = m.colorL;
-          ctx.beginPath();
-          ctx.moveTo(m.x, groundY + 2);
-          ctx.lineTo(peakX, peakY);
-          ctx.lineTo(peakX, groundY + 2);
-          ctx.closePath(); ctx.fill();
+        ctx.fillStyle = m.colorL;
+        ctx.beginPath();
+        ctx.moveTo(m.x, groundY + 2);
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(peakX, groundY + 2);
+        ctx.closePath(); ctx.fill();
 
-          ctx.fillStyle = m.colorR;
-          ctx.beginPath();
-          ctx.moveTo(peakX, groundY + 2);
-          ctx.lineTo(peakX, peakY);
-          ctx.lineTo(m.x + m.w, groundY + 2);
-          ctx.closePath(); ctx.fill();
+        ctx.fillStyle = m.colorR;
+        ctx.beginPath();
+        ctx.moveTo(peakX, groundY + 2);
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(m.x + m.w, groundY + 2);
+        ctx.closePath(); ctx.fill();
 
-          ctx.fillStyle = m.snowL;
-          ctx.beginPath();
-          ctx.moveTo(m.x + m.peakOffset * (1 - snowRatio), groundY - m.h * (1 - snowRatio));
-          ctx.lineTo(peakX, peakY);
-          ctx.lineTo(peakX, groundY - m.h * (1 - snowRatio));
-          ctx.closePath(); ctx.fill();
+        ctx.fillStyle = m.snowL;
+        ctx.beginPath();
+        ctx.moveTo(m.x + m.peakOffset * (1 - snowRatio), groundY - m.h * (1 - snowRatio));
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(peakX, groundY - m.h * (1 - snowRatio));
+        ctx.closePath(); ctx.fill();
 
-          ctx.fillStyle = m.snowR;
-          ctx.beginPath();
-          ctx.moveTo(peakX, groundY - m.h * (1 - snowRatio));
-          ctx.lineTo(peakX, peakY);
-          ctx.lineTo(peakX + (m.w - m.peakOffset) * snowRatio, groundY - m.h * (1 - snowRatio));
-          ctx.closePath(); ctx.fill();
-        });
+        ctx.fillStyle = m.snowR;
+        ctx.beginPath();
+        ctx.moveTo(peakX, groundY - m.h * (1 - snowRatio));
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(peakX + (m.w - m.peakOffset) * snowRatio, groundY - m.h * (1 - snowRatio));
+        ctx.closePath(); ctx.fill();
       });
-      ctx.restore();
-    }
+    });
     
-    // 4. 【繪製夜晚大樓】：在夜晚的權重不為 0 時，平滑渲染大樓與投影
-    if (cityAlpha > 0) {
-      ctx.save();
-      ctx.globalAlpha = cityAlpha; // 控制大樓與投影的淡入淡出
-      drawCityBuildings();
-      ctx.restore();
-    }
+    // 3. 繪製夜晚都市大樓
+    drawCityBuildings();
 
-    // 5. 【繪製雪花】：只在入夜後渲染漫天飄雪
+    // 4. 繪製夜間雪花
     drawSnow();
     
-    // 6. 【繪製前景物】：地面、障礙物、收集物與 UI
+    // 5. 繪製路面、障礙物、收集物與 UI
     drawGround();
     drawObstacles();
     drawCollectibles();
