@@ -418,6 +418,7 @@ canvas {
   audio.gameOver.volume = 1.0;       // 🎬 死亡慘叫聲全力輸出！
   audio.bgm.loop = true;
   let isMuted = false;
+  let isStarting = false; // 【新增】防止按鈕被瞬間重複觸發的保護開關
   let lastMilestoneScore = 0; 
 
   const images = {
@@ -1158,44 +1159,39 @@ canvas {
   render();
   
   // === 【全新重構：全端口相容、絕不卡死網路圖片的 Safari 全局音訊破壁器】 ===
+  // === 【全新重構：全端口環境識別特判、各瀏覽器各司其職的黃金分流器】 ===
   function handleStartButtonClick(e) {
-    if (e) e.preventDefault();
+  // 【核心保護】如果正在啟動中，直接忽略後續的重複觸發
+  if (isStarting) return;
+  isStarting = true;
 
-    // 🌟 全端口相容核心：點擊瞬間，背景音樂 BGM 既然要播，就直接讓它順暢 `.play()`
-    // 絕對不要對大體積的 BGM 呼叫 pause()，這樣電腦端音樂就不會斷，Safari 也會100%通過授權！
-    if (audio && audio.bgm && !isMuted) {
-      audio.bgm.play().catch(err => console.log("BGM 授權中"));
+  if (e) {
+    // 只在 touchstart 時阻止預設行為，避免干擾正常的 click 事件流
+    if (e.type === 'touchstart') {
+      e.preventDefault();
     }
-
-    // 🌟 核心破壁：只對這 5 個檔案極小的「短音效」在後台進行 volume=0 播放並立刻暫停。
-    // 因為短音效只有幾十 KB，可以在萬分之一秒內光速解鎖，徹底根除網絡佇列阻塞！圖片絕對不會再變色塊！
-    if (audio) {
-      const shortEffects = [audio.jump, audio.scoreMilestone, audio.getPoop, audio.getGift, audio.gameOver];
-      shortEffects.forEach(track => {
-        // 先偷偷將音量歸零，完全不干擾玩家耳朵
-        const originalVolume = track.volume;
-        track.volume = 0;
-        
-        const playPromise = track.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            track.pause();
-            track.volume = originalVolume; // 解鎖完畢，悄悄把音量還原，等待遊戲中觸發
-          }).catch(err => {
-            track.volume = originalVolume;
-          });
-        }
-      });
-    }
-
-    // 全域權限完美破壁後，順暢啟動遊戲！
-    startGame();
   }
+
+  // 🎵 1. 播放 BGM (現代瀏覽器只要在 click 事件內直接呼叫 play() 即可通過審核)
+  if (audio && audio.bgm && !isMuted) {
+    audio.bgm.play().catch(err => {
+      console.warn("BGM 播放被瀏覽器攔截，錯誤資訊:", err);
+    });
+  }
+
+  // 🎮 2. 啟動遊戲邏輯
+  startGame();
+
+  // 遊戲啟動後，延遲 500 毫秒重置開關，確保不會影響後續的正常操作
+  setTimeout(() => { 
+    isStarting = false; 
+  }, 500);
+}
 
   // 🌟 終極合體保險：將傳統 click 與行動端 touchstart 雙重綁定到最底部的解鎖函數上！
   // 焊在整份腳本的最末端執行，100% 確保 Brave、Chrome、Safari 行動端點擊時，音訊權限全局開放！
   startBtn.addEventListener('click', handleStartButtonClick);
-  startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
+  // startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
 
   requestAnimationFrame((time) => {
     lastTime = time;
