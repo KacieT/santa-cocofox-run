@@ -1,0 +1,1146 @@
+<!--const DEBUG_MODE = -->
+<!--const START_SCORE_TEST = -->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<!-- 禁止手機瀏覽器縮放與滾動，確保觸控滑順 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+<title>Coco狐快跑</title>
+<style>
+:root{
+  --sky-top: #a1c4fd; /* 初始白天為粉藍晴空 */
+  --sky-bottom: #c2e9fb;
+  --snow: #eef6fb;
+  --ink: #1c3f66;
+  --line: #6a63e0;
+  --accent: #f2604a;
+  --accent2: #9aa0a6;
+  --card: #ffffff;
+}
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  /* 💡 核心修改 1：保留網站整體的最美深藍漸層背景 */
+  background: linear-gradient(180deg, #0b1d3a, #1c3f66); 
+  font-family: 'Courier New', monospace;
+  color: var(--ink);
+  display: flex; 
+  align-items: center;      /* 垂直居中 */
+  justify-content: center;   /* 水平居中 */
+  flex-direction: column;
+  overflow: hidden; 
+  touch-action: none; 
+}
+h1 {
+  /* 💡 將遊戲標題鎖定為雪白色，在網頁深藍背景下最亮眼 */
+  color: var(--snow); 
+  letter-spacing: 3px;
+  font-size: 22px;
+  margin: 10px 0 10px;
+  text-transform: uppercase;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+#wrap {
+  position: relative;
+  width: 800px; height: 300px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--card);
+  transform-origin: center center; /* 縮放原點在正中央 */
+  margin: 0; /* 清空預設 margin */
+}
+canvas {
+  display: block; 
+  position: absolute; 
+  top: 0; left: 0; 
+  touch-action: none;
+}
+#playerSprite {
+  position: absolute;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: pixelated;
+  pointer-events: none;
+  will-change: transform;
+  transform-origin: center bottom;
+  z-index: 5;
+}
+#hint {
+  font-size: 13px;
+  color: var(--snow); /* 鎖定為白色，在網頁深藍背景下清晰可見 */
+  opacity: 0.8;
+  margin-top: 15px;
+  letter-spacing: 1px;
+  text-align: center;
+  padding: 0 10px;
+  line-height: 1.5;
+  z-index: 2;
+}
+
+/* 直屏專用的下方提示區 */
+#portraitAlert {
+  display: none;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  color: var(--snow);
+  border-radius: 8px;
+  padding: 10px 15px;
+  margin-top: 15px;
+  font-size: 13px;
+  text-align: center;
+  max-width: 90%;
+  box-sizing: border-box;
+}
+
+/* 靜音控制按鈕 */
+#muteBtn {
+  position: absolute;
+  top: 15px; left: 15px;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 253, 247, 0.9);
+  border: 2px solid var(--line);
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.1s, background 0.2s;
+}
+#muteBtn:active {
+  transform: scale(0.9);
+}
+
+#overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column;
+  background: rgba(255,255,255,0.95);
+  text-align: center;
+  font-size: 16px;
+  padding: 15px;
+  box-sizing: border-box;
+  z-index: 10;
+}
+#overlay button {
+  margin-top: 16px;
+  padding: 10px 24px;
+  font-family: inherit;
+  font-weight: bold;
+  font-size: 15px;
+  letter-spacing: 2px;
+  background: var(--line);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(106,99,224,0.3);
+  transition: transform 0.1s;
+}
+#overlay button:active {
+  transform: scale(0.95);
+}
+.statsRow {
+  display: flex; gap: 20px; margin-top: 14px; font-size: 14px;
+  background: #f0f4f8; padding: 8px 16px; border-radius: 20px;
+}
+.hidden { display: none !important; }
+
+/* ==========================================
+   📱 手機端排版 RWD 優化
+   ========================================== */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  h1 {
+    display: none !important; 
+  }
+  #hint {
+    margin-top: 5px; 
+  }
+}
+
+@media screen and (max-aspect-ratio: 13/9) and (max-width: 800px) {
+  html, body {
+    justify-content: flex-start; 
+    padding-top: 5%;             
+  }
+  h1 {
+    font-size: 18px;
+    margin: 10px 0;
+  }
+  #portraitAlert {
+    display: block; 
+  }
+}
+</style>
+</head>
+<body>
+
+<h1 id="gameTitle">🦊 Coco狐快跑 🦊</h1>
+<div id="wrap">
+  <canvas id="game" width="800" height="300"></canvas>
+  <!-- 你的去背白狐狸 GIF -->
+  <img id="playerSprite" src="ezgif-CocoFoxSantaRunningTransparent_1.gif" width="76" height="76">
+  
+  <!-- BGM 開關按鈕 -->
+  <div id="muteBtn">🎵</div>
+
+  <div id="overlay">
+    <div id="overlayText">按空白鍵 / 點擊左半邊螢幕 開始奔跑</div>
+    <button id="startBtn">開始遊戲</button>
+    <div id="statsDisplay" class="statsRow" style="display:none;"></div>
+  </div>
+</div>
+<div id="hint">💻 電腦版: 空白鍵/↑ 跳躍 · ↓ 下蹲<br>📱 手機版: 點擊【螢幕左側】跳躍 · 按住【螢幕右側】下蹲</div>
+
+<!-- 直屏下方提示區 -->
+<div id="portraitAlert">
+  🔄 <b>推薦旋轉手機橫屏遊玩！</b><br>
+  橫屏會自動放大畫面，視野更寬廣，躲避蟑螂更輕鬆喔！
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const spriteEl = document.getElementById('playerSprite');
+  const W = canvas.width, H = canvas.height;
+  // === 【新增：晝夜交替全域狀態與進度控制變數】 ===
+  let sceneProgress = 0; // 當前過渡進度（0~1）
+  let sceneCurrent = 'snow'; // 當前場景狀態
+  let sceneNext = 'snow'; // 即將切換的下一個場景狀態
+  let lastSceneNext = 'snow'; // === 【新增：用於單次觸發膠捲切換起跑點的紀錄變數】 ===
+  // === 【新增：每100分局部金黃呼吸燈控制變數】 ===
+  let scoreBreathTimer = 0; // 剩餘呼吸動畫幀數
+
+  // 顏色線性插值 (Lerp) 演算法（用於平滑融合天空顏色、字體顏色）
+  function lerpColor(color1, color2, weight) {
+    const c1 = { r: parseInt(color1.slice(1,3),16), g: parseInt(color1.slice(3,5),16), b: parseInt(color1.slice(5,7),16) };
+    const c2 = { r: parseInt(color2.slice(1,3),16), g: parseInt(color2.slice(3,5),16), b: parseInt(color2.slice(5,7),16) };
+    const r = Math.round(c1.r + (c2.r - c1.r) * weight).toString(16).padStart(2,'0');
+    const g = Math.round(c1.g + (c2.g - c1.g) * weight).toString(16).padStart(2,'0');
+    const b = Math.round(c1.b + (c2.b - c1.b) * weight).toString(16).padStart(2,'0');
+    return `#${r}${g}${b}`;
+  }
+  const groundY = 235;
+
+  // --- 【Debug 工具：如果你想在畫面上直接看見判定盒，請改成 true】 ---
+  const DEBUG_MODE = false; 
+  // === 【測試小工具：自訂起始分數直達車】 ===
+  const START_SCORE_TEST = false; // 💡 測試時改成 true，想正常玩時改成 false
+  const TEST_START_SCORE = 880;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
+
+  const overlay = document.getElementById('overlay');
+  const overlayText = document.getElementById('overlayText');
+  const statsDisplay = document.getElementById('statsDisplay');
+  const startBtn = document.getElementById('startBtn');
+  const muteBtn = document.getElementById('muteBtn');
+
+  let state = 'ready';
+  
+  // 速度與物理參數
+  let speed = 3.5, baseSpeed = 3.5, gravity = 0.6;
+  let score = 0, best = 0, frame = 0;
+  let obstacles = [], collectibles = [], snowflakes = [];
+  
+  // 統一的生成器冷卻時間 (單位：幀)
+  let spawnCooldown = 0; 
+  let poopCount = 0, giftCount = 0;
+
+  // FPS 控制器變數
+  let lastTime = performance.now();
+  const fps = 60;
+  const msPerFrame = 1000 / fps; // 每幀大約 16.67ms
+
+  // --- 【核心修改 3：白雲數據設計】 ---
+  // 每朵雲是由「一組具有相對座標的圓形」組合而成，呈現出多個圓形重疊的複雜、鬆軟蓬鬆形狀
+  let clouds = [];
+  // === 【優化：白雲初始化，支援右側排隊出生機制】 ===
+  function initClouds(startX = null) {
+    clouds = [];
+    for (let i = 0; i < 3; i++) {
+      const baseWidth = 70 + Math.random() * 30;
+      
+      // 💡 如果有傳入 startX（破曉切換時），讓雲朵在畫布右側外（startX）每隔 250px 排隊出生
+      // 💡 如果是 null（開局重置時），則維持原本的畫布內隨機隨機分佈
+      const cloudX = (startX !== null) ? (startX + i * 250) : (Math.random() * W);
+      
+      clouds.push({
+        x: cloudX,
+        y: 25 + Math.random() * 40,
+        w: baseWidth,
+        h: 20,
+        speed: 0.12 + Math.random() * 0.15,
+        
+        // 生成這朵雲內部的重疊圓形粒子
+        circles: [
+          { rx: baseWidth * 0.25, ry: -5,  r: 16 + Math.random() * 6 },  // 左側雲頂
+          { rx: baseWidth * 0.5,  ry: -14, r: 22 + Math.random() * 8 },  // 中央大雲頂
+          { rx: baseWidth * 0.75, ry: -6,  r: 15 + Math.random() * 5 }   // 右側雲頂
+        ]
+      });
+    }
+  }
+  initClouds();
+
+  // === 【新增：連綿不絕的幾何三角形雪山數據結構】 ===
+  // === 【重構：雙層立體摺紙幾何山脈數據結構】 ===
+  let mountains = [];
+  function initMountains(startX = null) {
+    mountains = [];
+    
+    // 1. 生成後排遠山
+    let farX = startX !== null ? startX : -100;
+    const farLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (farX < farLimit) {
+      const width = 160 + Math.random() * 120;
+      const height = 55 + Math.random() * 35;
+      const peakOffset = width * (0.2 + Math.random() * 0.6); 
+      mountains.push({
+        x: farX, w: width, h: height, peakOffset: peakOffset,
+        layer: 'far', 
+        scrollSpeed: 0.03, 
+        colorL: '#cce2fc', colorR: '#b4d4f7', 
+        snowL: 'rgba(255,255,255,0.85)', snowR: 'rgba(240,246,255,0.85)'
+      });
+      farX += width * (0.6 + Math.random() * 0.3); 
+    }
+
+    // 2. 生成前排近山
+    let nearX = startX !== null ? startX : -50;
+    const nearLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (nearX < nearLimit) {
+      const width = 110 + Math.random() * 90;
+      const height = 35 + Math.random() * 25;
+      const peakOffset = width * (0.25 + Math.random() * 0.5); 
+      mountains.push({
+        x: nearX, w: width, h: height, peakOffset: peakOffset,
+        layer: 'near', 
+        scrollSpeed: 0.06, 
+        colorL: '#add2fa', colorR: '#92c1f3', 
+        snowL: 'rgba(255,255,255,0.95)', snowR: 'rgba(230,240,255,0.95)'
+      });
+      if (Math.random() < 0.25) {
+        nearX += width + (40 + Math.random() * 80); 
+      } else {
+        nearX += width * 0.7; 
+      }
+    }
+  }
+  initMountains(); // 初始生成雪山
+
+  // 動態背景大樓數據陣列
+  // === 【重構：雙層立體霓虹都市大樓數據結構】 ===
+  // === 【重構：方案 A 邊緣霓虹高光都市大樓數據結構】 ===
+  // === 【重構：方案 1 剪紙重疊陰影都市大樓數據結構】 ===
+  let cityBuildings = [];
+  function initBuildings(startX = null) {
+    cityBuildings = [];
+    
+    // 1. 生成後排遠景大樓
+    let farX = startX !== null ? startX : -50;
+    const farLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (farX < farLimit) {
+      const width = 80 + Math.random() * 90;
+      const height = 110 + Math.random() * 90;
+      cityBuildings.push({
+        x: farX, w: width, h: height,
+        layer: 'far', 
+        scrollSpeed: 0.08, 
+        mainColor: '#0a0914', 
+        windows: [] 
+      });
+      farX += width - 10;
+    }
+
+    // 2. 生成前排近景大樓
+    let nearX = startX !== null ? startX : 0;
+    const nearLimit = startX !== null ? startX + W + 200 : W + 200;
+    while (nearX < nearLimit) {
+      const width = 55 + Math.random() * 65;
+      const height = 80 + Math.random() * 80;
+      
+      const windows = [];
+      const cols = Math.floor(width / 16);
+      const rows = Math.floor(height / 22);
+      const isPinkTheme = Math.random() < 0.45; 
+      const winColor = isPinkTheme ? '#ff5c8d' : '#ffd166'; 
+
+      for (let r = 1; r < rows - 1; r++) {
+        if (Math.random() < 0.45) {
+          for (let c = 1; c < cols - 1; c++) {
+            if (Math.random() < 0.7) { 
+              windows.push({ 
+                dx: c * 16, 
+                dy: r * 22, 
+                color: winColor 
+              });
+            }
+          }
+        }
+      }
+
+      cityBuildings.push({
+        x: nearX, w: width, h: height,
+        layer: 'near', 
+        scrollSpeed: 0.15, 
+        mainColor: '#121424', 
+        windows: windows
+      });
+      nearX += width - 5; 
+    }
+  }
+  initBuildings(); // 初始生成大樓
+
+  // 音訊物件初始化
+  const audio = {
+    jump: new Audio('JumpVoiceHeiCoco.m4a'),
+    scoreMilestone: new Audio('ScoreVoiceUwaCoco_2.m4a'),
+    bgm: new Audio('BgmPadoruCoco.mp4')
+  };
+
+  audio.bgm.loop = true;
+  let isMuted = false;
+  let lastMilestoneScore = 0; 
+
+  const images = {
+    police: new Image(),
+    cone: new Image(),
+    roach: new Image(),
+    poop: new Image(),
+    gift: new Image()
+  };
+  
+  images.police.src = 'Cop2Trans.png';
+  images.cone.src = 'TrafficConeTrans.png';
+  images.roach.src = 'CockroachTrans.png';
+  images.poop.src = 'PoopTrans.png';
+  images.gift.src = 'GiftBoxTrans.png';
+
+  const SPRITE_W = 76, SPRITE_H = 76;
+  
+  const player = {
+    x: 65, y: groundY - 58, w: 44, h: 58,
+    vy: 0, ducking: false, onGround: true
+  };
+
+  function resetGame(){
+    score = START_SCORE_TEST ? TEST_START_SCORE : 0;
+    speed = baseSpeed + Math.sqrt(score) * 0.08; 
+    
+    frame = 0;
+    lastMilestoneScore = Math.floor(score / 100); 
+    obstacles = []; collectibles = []; snowflakes = [];
+    poopCount = 0; giftCount = 0;
+    player.y = groundY - 58; player.vy = 0;
+    player.ducking = false; player.onGround = true;
+    
+    spawnCooldown = 60; 
+
+    // 依據開局分數，決定背景初始化狀態
+    const loopScore = Math.floor(score) % 2000;
+    if (loopScore >= 1000 && loopScore < 1900) {
+      initBuildings();
+      initMountains(-9999); // 白天背景放到極左側隱藏
+    } else {
+      initMountains();
+      initClouds();
+      initBuildings(-9999); // 夜晚背景放到極左側隱藏
+    }
+    lastSceneNext = loopScore < 1000 ? 'snow' : 'city';
+  }
+
+  // 雪花生成邏輯
+  function spawnSnow(initial){
+    snowflakes.push({
+      x: Math.random()*W,
+      y: initial ? Math.random()*groundY : -10,
+      r: 1+Math.random()*2.4,
+      vy: 0.4+Math.random()*0.8,
+      drift: (Math.random()-0.5)*0.6
+    });
+  }
+
+  function rectsOverlap(a, b){
+    return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+  }
+
+  // 障礙物生成
+  function spawnObstacle(){
+    const kinds = ['police', 'cone', 'cone', 'roach'];
+    const kind = kinds[Math.floor(Math.random()*kinds.length)];
+    let w, h, y;
+    if(kind==='police'){ w=50; h=60; y=groundY-h; }
+    else if(kind==='cone'){ w=40; h=50; y=groundY-h; }
+    else { 
+      w=55; h=35;
+      const levels=[groundY-70, groundY-105, groundY-145];
+      y = levels[Math.floor(Math.random()*levels.length)];
+    }
+    obstacles.push({x: W+20, y, w, h, kind, wing: 0});
+  }
+
+  // 收集物生成
+  function spawnCollectible(){
+    const kind = Math.random() < 0.5 ? 'poop' : 'gift';
+    const w=40, h=40;
+    const levels = [groundY-h, groundY-75, groundY-120];
+    const y = levels[Math.floor(Math.random()*levels.length)];
+    collectibles.push({x: W+20, y, w, h, kind, taken: false, spin: 0});
+  }
+
+  // 統一生成控制器
+  function manageSpawning() {
+    if (spawnCooldown > 0) {
+      spawnCooldown--;
+      return;
+    }
+
+    const spawnType = Math.random() < 0.7 ? 'obstacle' : 'collectible';
+    
+    if (spawnType === 'obstacle') {
+      spawnObstacle();
+    } else {
+      spawnCollectible();
+    }
+
+    const minDistancePixels = 280; 
+    const randomExtraPixels = Math.random() * 180; 
+    
+    spawnCooldown = Math.floor((minDistancePixels + randomExtraPixels) / speed);
+  }
+
+  function playSound(sound) {
+    if (isMuted) return;
+    sound.currentTime = 0; 
+    sound.play().catch(e => console.log("音效播放失敗: ", e));
+  }
+
+  // 跳躍
+  function jump(){
+    if(state==='ready' || state==='gameover'){ startGame(); return; }
+    if(player.onGround && !player.ducking){
+      player.vy = -12.2;
+      player.onGround = false;
+      playSound(audio.jump); 
+    }
+  }
+  
+  function duckStart(){ if(state==='running') player.ducking = true; }
+  function duckEnd(){ player.ducking = false; }
+
+  // 聲音開關
+  function toggleMute() {
+    isMuted = !isMuted;
+    audio.bgm.muted = isMuted;
+    muteBtn.innerHTML = isMuted ? '🔇' : '🎵';
+  }
+  muteBtn.addEventListener('click', toggleMute);
+  muteBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    toggleMute();
+  }, { passive: false });
+
+  // 電腦版鍵盤事件
+  window.addEventListener('keydown', (e)=>{
+    if(e.code==='Space' || e.code==='ArrowUp'){ e.preventDefault(); jump(); }
+    else if(e.code==='ArrowDown'){ e.preventDefault(); duckStart(); }
+    else if(e.code==='KeyR' && state==='gameover'){ startGame(); }
+  });
+  window.addEventListener('keyup', (e)=>{ if(e.code==='ArrowDown') duckEnd(); });
+
+  // 手機版觸控（左跳右蹲）
+  // === 【優化：擴大觸控範圍至整個網頁視窗 window】 ===
+  window.addEventListener('touchstart', (e) => {
+    // 💡 核心防誤觸：如果玩家點擊的是左上角的靜音按鈕（muteBtn）或開始按鈕（startBtn），
+    // 則直接放行，交給它們原本的點擊事件處理，不觸發跳躍或下蹲
+    if (e.target.closest('#muteBtn') || e.target.closest('#startBtn')) return;
+
+    e.preventDefault();
+    if(state !== 'running') {
+      startGame();
+      return;
+    }
+    
+    // 💡 因為綁定在 window 上，我們改用 e.touches[0].clientX 取得相對於整個手機螢幕的絕對座標
+    const touchX = e.touches[0].clientX;
+    const screenWidth = window.innerWidth;
+
+    // 將整個手機螢幕一分為二：點擊螢幕左半邊跳躍，按住螢幕右半邊下蹲
+    if (touchX < screenWidth / 2) {
+      jump(); 
+    } else {
+      duckStart(); 
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchend', (e) => {
+    // 💡 如果在遊戲進行中，所有手指都離開螢幕了，就結束下蹲
+    if (state === 'running' && e.touches.length === 0) {
+      e.preventDefault();
+      duckEnd();
+    }
+  }, { passive: false });
+
+  // === 【優化：電腦版網頁滑鼠點擊容錯】 ===
+  window.addEventListener('mousedown', (e) => {
+    if (e.target.closest('#muteBtn') || e.target.closest('#startBtn')) return;
+    if (state === 'running') {
+      jump();
+    }
+  });
+
+  startBtn.addEventListener('click', startGame);
+  startBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    startGame();
+  }, { passive: false });
+
+  function startGame(){
+    if (!isMuted) {
+      audio.bgm.play().catch(e => console.log("BGM 播放受限"));
+    }
+    resetGame();
+    state = 'running';
+    overlay.classList.add('hidden');
+    statsDisplay.style.display = 'none';
+  }
+
+  function endGame(){
+    state = 'gameover';
+    best = Math.max(best, Math.floor(score));
+    overlayText.innerHTML = `遊戲結束 · 分數 ${Math.floor(score)} 最高 ${best}`;
+    statsDisplay.innerHTML = `<span>💩 便便 x ${poopCount}</span><span>🎁 禮物 x ${giftCount}</span>`;
+    statsDisplay.style.display = 'flex';
+    overlay.classList.remove('hidden');
+  }
+
+  // 取得當前玩家精準判定盒的輔助函數
+  function getPlayerHitbox() {
+    const isDucking = player.ducking && player.onGround;
+    const topOffset = isDucking ? 24 : 10; 
+    const hitH = isDucking ? 14 : player.h - 16;  
+
+    return {
+      x: player.x + 12,
+      y: player.y + topOffset,
+      w: player.w - 24,
+      h: hitH
+    };
+  }
+
+  // 獲取當前關卡場景主題 (0~1000：雪地白天，1000~2000：霓虹夜城)
+  function getTheme() {
+    const relativeScore = Math.floor(score) % 2000;
+    return relativeScore < 1000 ? 'snow' : 'city';
+  }
+
+  function update(){
+    frame++;
+    score += speed*0.045;
+    speed = baseSpeed + Math.sqrt(score) * 0.08;
+
+    // === 【優化：偵測每100分里程碑，同步觸發音效與UI字體金黃呼吸燈】 ===
+    let currentMilestone = Math.floor(score / 100);
+    if (currentMilestone > lastMilestoneScore) {
+      lastMilestoneScore = currentMilestone;
+      playSound(audio.scoreMilestone);
+      scoreBreathTimer = 60; // 🌟 啟動呼吸燈，持續 60 幀（約 1 秒鐘，完成兩次優雅的淡入淡出循環）
+    }
+
+    // 🌟 如果呼吸燈正在播放，每幀默默遞減 1
+    if (scoreBreathTimer > 0) {
+      scoreBreathTimer--;
+    }
+
+    // === 【計算晝夜過渡進度（2000分大循環）】 ===
+    const loopScore = Math.floor(score) % 2000;
+    if (loopScore < 900) {
+      sceneProgress = 0; sceneCurrent = 'snow'; sceneNext = 'snow';
+    } else if (loopScore >= 900 && loopScore < 1000) {
+      sceneProgress = (loopScore - 900) / 100; sceneCurrent = 'snow'; sceneNext = 'city';
+    } else if (loopScore >= 1000 && loopScore < 1900) {
+      sceneProgress = 0; sceneCurrent = 'city'; sceneNext = 'city';
+    } else {
+      sceneProgress = (loopScore - 1900) / 100; sceneCurrent = 'city'; sceneNext = 'snow';
+    }
+
+    // 💡 偵測場景轉換起點！當剛跨越臨界點時，在右側（W）初始化新背景
+    // === 【優化：移除 1900 分的山脈與雲朵重置，保留其原本的滾動連續性】 ===
+    if (sceneNext !== lastSceneNext) {
+      if (sceneNext === 'city') {
+        // 黃昏 900 分：都市大樓群正常在畫布右側外（W + 50）排隊生成並開始滾動進場
+        initBuildings(W + 50);
+      } else if (sceneNext === 'snow') {
+        // 🌟 破曉 1900 分：我們【不要】呼叫 initMountains 和 initClouds！
+        // 讓原本在黑夜中默默滾動的山脈與雲朵流暢地繼續往左前進、自然接管畫面，徹底根除消失閃現 Bug。
+      }
+      lastSceneNext = sceneNext;
+    }
+
+    // 保留：狐狸高度物理屬性
+    const duckH = 34, standH = 58;
+    player.h = player.ducking && player.onGround ? duckH : standH;
+    player.y += player.vy;
+    if(!player.onGround) player.vy += gravity;
+    const floorY = groundY - player.h;
+    if(player.y >= floorY){ player.y = floorY; player.vy = 0; player.onGround = true; }
+
+    // 💡 1. 雙層雪山滾動更新（後台不分晝夜默默推進）
+    mountains.forEach(m => {
+      m.x -= (speed * m.scrollSpeed);
+      if (m.x + m.w < -100) {
+        // 膠捲核心：只有在下個場景依然是白天雪地時，滑出的雪山才循環回右側
+        if (sceneNext === 'snow') {
+          let maxRight = -100;
+          mountains.forEach(mt => {
+            if(mt.layer === m.layer && mt.x > maxRight) maxRight = mt.x;
+          });
+          m.x = maxRight + m.w * (m.layer === 'far' ? 0.7 : 0.75);
+        } else {
+          // 入夜過渡中：滑出左側邊界的雪山直接移走不回頭
+          m.x = -9999;
+        }
+      }
+    });
+
+    // 💡 2. 白雲滾動更新（永遠保持自然的循環滾動更新，不分晝夜，永不沒收與重置）
+    clouds.forEach(c => {
+      c.x -= c.speed;
+      if (c.x + c.w < -30) {
+        c.x = W + 30;
+        c.y = 25 + Math.random() * 40;
+      }
+    });
+
+    // 💡 3. 都市背景大樓更新（前排 1900 退場，後排 1600 提前截流）
+    cityBuildings.forEach(b => {
+      b.x -= (speed * b.scrollSpeed);
+    });
+
+    const currentLoopScore = Math.floor(score) % 2000;
+
+    cityBuildings.forEach(b => {
+      if (b.x + b.w < -100) {
+        // 判定這棟大樓滑出左邊界後，是否要重新在右側循環拼接出生：
+        let shouldWrap = false;
+
+        if (b.layer === 'far') {
+          // 1. 後排慢速大樓：只有在夜晚 1000~1600 分之間才循環生成，1600 後提前截流
+          if (currentLoopScore >= 1000 && currentLoopScore < 1600) {
+            shouldWrap = true;
+          }
+        } else {
+          // 2. 前排快速大樓：維持原版，在整個黑夜 1000~1900 分之間都正常循環，1900 破曉才退場
+          if (currentLoopScore >= 1000 && currentLoopScore < 1900) {
+            shouldWrap = true;
+          }
+        }
+
+        if (shouldWrap) {
+          // 執行右側循環拼接
+          let maxRight = W;
+          cityBuildings.forEach(bt => {
+            if (bt.layer === b.layer && bt.x > maxRight) maxRight = bt.x;
+          });
+          b.x = maxRight + b.w - 5;
+        } else {
+          // 退場：滑出左邊界的大樓不再循環，移至極左側放行舞台
+          b.x = -9999;
+        }
+      }
+    });
+
+    // 破曉 1900 一到，主動將右側外尚未露臉的大樓過濾清除，防止新大樓再進場
+    // 🌟 修正黃昏秒殺 Bug：只在破曉退場期 (1900~2000分) 與純白天 (0~900分) 才沒收右側外的大樓。
+    // 在黃昏過渡期 (900~1000分) 時放行右側出生的大樓順暢滑入螢幕。
+    if (currentLoopScore >= 1900 || currentLoopScore < 900) {
+      cityBuildings = cityBuildings.filter(b => b.x < W);
+    }
+
+    // 🌟 修正前排退場太晚 Bug：當剛跨入 1900 分破曉的那一瞬間，
+    // 直接將已經在畫面右側外面排隊、看不見的前排大樓尾巴一刀切斷！
+    // 這樣前排大樓就沒有了長火車尾的累贅，能以 0.15 的快速最準時地在 2050 分前自然走光。
+    if (currentLoopScore === 1900) {
+      cityBuildings = cityBuildings.filter(b => b.x < W);
+    }
+
+    // 💡 4. 雪花更新：實現「雪花自然落盡」效果
+    const relativeScore = Math.floor(score) % 2000;
+    // 只有在夜晚 (900~1900) 以及破曉過渡前半段 (1900~1950) 才會「生成」新雪花
+    const shouldSpawnSnow = relativeScore >= 900 && relativeScore < 1950; 
+    
+    // 只要畫面上還有雪花，就持續更新它們的位置，讓它們自然飄落出境
+    if (snowflakes.length > 0 || shouldSpawnSnow) {
+      snowflakes.forEach(s => { s.y += s.vy; s.x += s.drift; });
+      snowflakes = snowflakes.filter(s => s.y < groundY + 10);
+      
+      // 只有在生成區間內，才隨機產生新雪花
+      if (shouldSpawnSnow && Math.random() < 0.35) {
+        spawnSnow(false);
+      }
+    }
+
+    // 保留：生成與障礙物/收集物碰撞檢測
+    manageSpawning();
+
+    obstacles.forEach(o=>{ o.x -= speed; if(o.kind==='roach') o.wing += 0.4; });
+    obstacles = obstacles.filter(o=> o.x + o.w > -10);
+
+    collectibles.forEach(c=>{ c.x -= speed; c.spin += 0.08; });
+    collectibles = collectibles.filter(c=> c.x + c.w > -10 && !c.taken);
+
+    const hitbox = getPlayerHitbox();
+
+    for(const o of obstacles){
+      const obox = {x:o.x+6, y:o.y+6, w:o.w-12, h:o.h-12};
+      if(rectsOverlap(hitbox, obox)){ endGame(); return; }
+    }
+    
+    for(const c of collectibles){
+      if(c.taken) continue;
+      const cbox = {x:c.x+4, y:c.y+4, w:c.w-8, h:c.h-8};
+      if(rectsOverlap(hitbox, cbox)){
+        c.taken = true;
+        score += 10; 
+        if(c.kind==='poop') poopCount++; else giftCount++;
+      }
+    }
+
+    const scale = player.ducking && player.onGround ? 0.72 : 1;
+    const tiltDeg = !player.onGround ? -8 : 0;
+    spriteEl.style.transform =
+      `translate(${player.x - (SPRITE_W-player.w)/2}px, ${player.y - (SPRITE_H-58)}px) ` +
+      `scale(${scale}) rotate(${tiltDeg}deg)`;
+  }
+
+  // 天空背景漸層渲染
+  // === 【修改：支援 2000 分大循環平滑漸變的天空渲染】 ===
+  function drawSky() {
+    const snowTop = '#a1c4fd', snowBot = '#c2e9fb'; // 白天天空
+    const cityTop = '#0d081f', cityBot = '#1a103c'; // 夜晚天空
+    let topColor, bottomColor;
+
+    // 依據晝夜進度，即時用 lerpColor 計算出當前的過渡天色
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      topColor = snowTop; bottomColor = snowBot;
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      topColor = cityTop; bottomColor = cityBot;
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      topColor = lerpColor(snowTop, cityTop, sceneProgress);
+      bottomColor = lerpColor(snowBot, cityBot, sceneProgress);
+    } else {
+      topColor = lerpColor(cityTop, snowTop, sceneProgress);
+      bottomColor = lerpColor(cityBot, snowBot, sceneProgress);
+    }
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, topColor);
+    grad.addColorStop(1, bottomColor);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // --- 【核心修改 4：利用多圓重疊渲染出高低起伏的「複雜蓬鬆積雲」】 ---
+  function drawClouds() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // 溫和半透明白色
+    
+    clouds.forEach(c => {
+      // 1. 繪製底部圓角長條
+      ctx.beginPath();
+      ctx.roundRect(c.x, c.y, c.w, c.h, c.h / 2);
+      ctx.fill();
+      
+      // 2. 繪製上方的重疊泡泡圓形，構成複雜起伏形狀
+      c.circles.forEach(circ => {
+        ctx.beginPath();
+        ctx.arc(c.x + circ.rx, c.y + circ.ry + c.h / 2, circ.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    });
+    
+    ctx.restore();
+  }
+
+  // 城市剪影大樓繪製
+  // === 【重構：繪製「立體摺紙霓虹風」雙層都市大樓】 ===
+  // === 【重構：繪製方案 A「邊緣霓虹側光風」雙層都市大樓】 ===
+  // === 【重構：繪製方案 1「剪紙重疊陰影風」雙層都市大樓】 ===
+  function drawCityBuildings() {
+    ctx.save();
+    
+    // 依序先畫後排遠景大樓，再疊加前排近景大樓與陰影
+    const layersOrder = ['far', 'near'];
+    layersOrder.forEach(layerTag => {
+      cityBuildings.forEach(b => {
+        if (b.layer !== layerTag) return;
+
+        // --- 如果是前排近景大樓，先在它右側投射半透明剪紙陰影 ---
+        if (layerTag === 'near') {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'; // 高質感的深邃半透明黑色投影
+          const shadowWidth = 10; // 陰影寬度 10 像素
+          ctx.fillRect(b.x + b.w, groundY - b.h, shadowWidth, b.h);
+        }
+
+        // --- 1. 繪製大樓主體面（極致乾淨、無光邊的單色矩形） ---
+        ctx.fillStyle = b.mainColor;
+        ctx.fillRect(b.x, groundY - b.h, b.w, b.h);
+
+        // --- 2. 繪製前排近景大樓的精緻冷暖色霓虹窗戶 ---
+        b.windows.forEach(w => {
+          ctx.fillStyle = w.color;
+          ctx.globalAlpha = 0.85;
+          ctx.fillRect(b.x + w.dx, groundY - b.h + w.dy, 5, 7);
+        });
+        ctx.globalAlpha = 1.0; // 重設透明度
+      });
+    });
+    
+    ctx.restore();
+  }
+
+  // 雪花繪製
+  function drawSnow(){
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    snowflakes.forEach(s=>{
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  // 地面繪製
+  // === 【重構：支援晝夜平滑交替的地面渲染】 ===
+  function drawGround(){
+    // 1. 繪製白天的雪地地面函數
+    const renderSnowGround = () => {
+      ctx.fillStyle = '#eef6fb';
+      ctx.fillRect(0, groundY+2, W, H-groundY-2);
+      ctx.strokeStyle = '#c7d9e6';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
+      
+      ctx.fillStyle = 'rgba(199,217,230,0.9)';
+      const off = (frame*Math.floor(speed)) % 40;
+      for(let x=-off; x<W; x+=40) ctx.fillRect(x, groundY+10, 16, 3);
+    };
+
+    // 2. 繪製夜晚的馬路地面函數
+    const renderCityGround = () => {
+      ctx.fillStyle = '#1e1e24';
+      ctx.fillRect(0, groundY+2, W, H-groundY-2);
+      ctx.strokeStyle = '#3e3e4a';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(0, groundY+2); ctx.lineTo(W, groundY+2); ctx.stroke();
+
+      ctx.fillStyle = '#f1c40f';
+      const off = (frame*Math.floor(speed)) % 50;
+      for(let x=-off; x<W; x+=50) ctx.fillRect(x, groundY+30, 24, 4);
+    };
+
+    // 3. 依據過渡進度進行雙層路面透明度疊加 (Cross-fade)
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      renderSnowGround();
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      renderCityGround();
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      renderSnowGround();
+      ctx.save(); ctx.globalAlpha = sceneProgress; renderCityGround(); ctx.restore();
+    } else {
+      renderCityGround();
+      ctx.save(); ctx.globalAlpha = sceneProgress; renderSnowGround(); ctx.restore();
+    }
+  }
+
+  function drawObstacles(){
+    obstacles.forEach(o=>{
+      const img = images[o.kind];
+      if(img && img.complete && img.naturalWidth !== 0) {
+        ctx.drawImage(img, o.x, o.y, o.w, o.h);
+      } else {
+        ctx.fillStyle = o.kind === 'roach' ? '#5c4033' : '#f2604a';
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+      }
+
+      // --- 【Debug 模式：繪製障礙物紅色物理判定盒】 ---
+      if (DEBUG_MODE) {
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(o.x+6, o.y+6, o.w-12, o.h-12);
+      }
+    });
+  }
+
+  function drawCollectibles(){
+    collectibles.forEach(c=>{
+      if(c.taken) return;
+      const bob = Math.sin(c.spin)*4; 
+      const img = images[c.kind];
+      if(img && img.complete && img.naturalWidth !== 0) {
+        ctx.drawImage(img, c.x, c.y + bob, c.w, c.h);
+      } else {
+        ctx.fillStyle = c.kind === 'poop' ? '#a0522d' : '#2e8b57';
+        ctx.fillRect(c.x, c.y + bob, c.w, c.h);
+      }
+    });
+  }
+
+  // === 【重構：支援字色平滑過渡的 drawScore 函數】 ===
+  // === 【重構：支援「當前分數行」金黃呼吸燈提示的 drawScore 函數】 ===
+  function drawScore(){
+    // 1. 依據晝夜進度，平滑融合基礎字體顏色：白天為深藍 (#1c3f66)，夜晚為溫和白 (#fffdf7)
+    let baseTextColor = '#1c3f66';
+    const snowColor = '#1c3f66', cityColor = '#fffdf7';
+
+    if (sceneCurrent === 'snow' && sceneNext === 'snow') {
+      baseTextColor = snowColor;
+    } else if (sceneCurrent === 'city' && sceneNext === 'city') {
+      baseTextColor = cityColor;
+    } else if (sceneCurrent === 'snow' && sceneNext === 'city') {
+      baseTextColor = lerpColor(snowColor, cityColor, sceneProgress);
+    } else {
+      baseTextColor = lerpColor(cityColor, snowColor, sceneProgress);
+    }
+
+    // 2. 🌟 核心呼吸燈演算法：利用正弦波 (Math.sin) 產生絲滑的顏色插值權重
+    let currentScoreColor = baseTextColor;
+    if (scoreBreathTimer > 0) {
+      const targetColor = '#ffd166'; // 使用前排大樓窗戶最內斂溫暖的璀璨金黃霓虹色
+      
+      // 利用 Math.sin 配合計時器，把數值對應成一條平滑起伏的波浪（介於 0 到 1 之間）
+      // 乘以 0.2 可以將正弦波頻率控制在「1秒鐘優雅呼吸起伏兩下」的舒適速度
+      const breathWeight = Math.abs(Math.sin((60 - scoreBreathTimer) * 0.2));
+      
+      // 使用平滑的權重，將基礎字色與金黃色無縫融合
+      currentScoreColor = lerpColor(baseTextColor, targetColor, breathWeight);
+    }
+
+    ctx.font = 'bold 14px "Courier New", monospace';
+    
+    // 💡 僅讓「當前分數」這一行套用平滑的呼吸燈顏色 (currentScoreColor)
+    ctx.fillStyle = currentScoreColor;
+    ctx.textAlign = 'right';
+    ctx.fillText('分數 ' + Math.floor(score).toString().padStart(5,'0'), W-16, 26);
+    
+    // 💡 其餘「最高分數」與「收集物數量」維持 100% 靜止，原色呈現，絕不干擾玩家視線
+    ctx.fillStyle = baseTextColor;
+    ctx.fillText('最高 ' + best.toString().padStart(5,'0'), W-16, 44);
+    ctx.fillText('💩x' + poopCount + '  🎁x' + giftCount, W-16, 62);
+    ctx.textAlign = 'left';
+
+    if (DEBUG_MODE) {
+      const hitbox = getPlayerHitbox();
+      ctx.strokeStyle = 'lime';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hitbox.x, hitbox.y, hitbox.w, hitbox.h);
+    }
+  }
+
+  // === 【全新重構：2000分晝夜交替大循環 render 函數】 ===
+  // === 【精簡：膠捲播放無縫背景渲染 render 函數】 ===
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    
+    // 1. 繪製平滑漸變天空 (已在 drawSky 內部進行平滑插值計算)
+    drawSky();
+    
+    // 2. 繪製白天雪山與雲朵
+    drawClouds();
+
+    const layersOrder = ['far', 'near'];
+    layersOrder.forEach(layerTag => {
+      mountains.forEach(m => {
+        if (m.layer !== layerTag) return;
+        if (m.x < -200 || m.x > W + 200) return; // 視窗剪裁
+
+        const peakX = m.x + m.peakOffset;
+        const peakY = groundY - m.h;
+        const snowRatio = 0.32;
+
+        ctx.fillStyle = m.colorL;
+        ctx.beginPath();
+        ctx.moveTo(m.x, groundY + 2);
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(peakX, groundY + 2);
+        ctx.closePath(); ctx.fill();
+
+        ctx.fillStyle = m.colorR;
+        ctx.beginPath();
+        ctx.moveTo(peakX, groundY + 2);
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(m.x + m.w, groundY + 2);
+        ctx.closePath(); ctx.fill();
+
+        ctx.fillStyle = m.snowL;
+        ctx.beginPath();
+        ctx.moveTo(m.x + m.peakOffset * (1 - snowRatio), groundY - m.h * (1 - snowRatio));
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(peakX, groundY - m.h * (1 - snowRatio));
+        ctx.closePath(); ctx.fill();
+
+        ctx.fillStyle = m.snowR;
+        ctx.beginPath();
+        ctx.moveTo(peakX, groundY - m.h * (1 - snowRatio));
+        ctx.lineTo(peakX, peakY);
+        ctx.lineTo(peakX + (m.w - m.peakOffset) * snowRatio, groundY - m.h * (1 - snowRatio));
+        ctx.closePath(); ctx.fill();
+      });
+    });
+    
+    // 3. 繪製夜晚都市大樓
+    drawCityBuildings();
+
+    // 4. 繪製夜間雪花
+    drawSnow();
+    
+    // 5. 繪製路面、障礙物、收集物與 UI
+    drawGround();
+    drawObstacles();
+    drawCollectibles();
+    drawScore();
+  }
+
+  function loop(currentTime){
+    requestAnimationFrame(loop);
+    const elapsed = currentTime - lastTime;
+    if (elapsed >= msPerFrame) {
+      lastTime = currentTime - (elapsed % msPerFrame);
+      if(state==='running') update();
+      render();
+    }
+  }
+
+  function resizeGame() {
+    const wrap = document.getElementById('wrap');
+    const targetWidth = window.innerWidth * 0.95;
+    const scale = targetWidth / 800; 
+    
+    wrap.style.transform = `scale(${scale})`;
+
+    const marginX = (800 * scale - 800) / 2;
+    const marginY = (300 * scale - 300) / 2;
+    
+    wrap.style.marginLeft = `${marginX}px`;
+    wrap.style.marginRight = `${marginX}px`;
+    wrap.style.marginTop = `${marginY}px`;
+    wrap.style.marginBottom = `${marginY}px`;
+  }
+
+  window.addEventListener('resize', resizeGame);
+  resizeGame(); 
+
+  resetGame();
+  render();
+  
+  requestAnimationFrame((time) => {
+    lastTime = time;
+    loop(time);
+  });
+})();
+</script>
+</body>
+</html>
