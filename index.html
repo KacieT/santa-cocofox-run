@@ -537,13 +537,14 @@ canvas {
     sound.play().catch(e => console.log("音效播放失敗: ", e));
   }
 
-  // 🌟 【核心修復】：統一嘗試播放 BGM 的函數
   function tryPlayBgm() {
     if (!isMuted && !isBgmPlaying) {
-      audio.bgm.play().then(() => {
-        isBgmPlaying = true; // 播放成功，標記為已啟動，後續不再重複呼叫 play()
-      }).catch(err => {
+      isBgmPlaying = true; // ✅ 移到最前面，立刻鎖住狀態，防止重複觸發
+      
+      audio.bgm.play().catch(err => {
         console.log("BGM 播放被瀏覽器攔截或延遲:", err);
+        // 如果真的失敗了，才把狀態改回來，讓下次互動有機會重試
+        isBgmPlaying = false; 
       });
     }
   }
@@ -624,7 +625,7 @@ canvas {
 
   // 💡 雙重監聽保險：擺在整份腳本的最末端執行，這能確保 audio 內的所有變數和路徑 100% 就緒
   startBtn.addEventListener('click', handleStartButtonClick);
-  startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
+  // startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
 
   // 🎯 【核心修復】：startGame 只負責重置狀態與嘗試播放 BGM
   function startGame(){
@@ -1110,6 +1111,36 @@ canvas {
 
   resetGame();
   render();
+
+  // === 【終極修復：全域音訊喚醒機制 (解決手機端第一局無聲)】 ===
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return; // 已經解鎖過，直接跳過
+    audioUnlocked = true;
+    console.log("🔓 嘗試解鎖全域音訊系統...");
+
+    // 💡 【關鍵修正】：直接複用 tryPlayBgm()，確保 isBgmPlaying 狀態被正確標記，避免重複播放
+    tryPlayBgm();
+
+    // 【核心殺手鐧】強制喚醒 AudioContext (專治 Chrome/Brave/Safari 的 suspended 狀態)
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      const ctx = new AudioContext();
+      ctx.resume().then(() => {
+        console.log("✅ AudioContext 已成功喚醒！");
+      }).catch(err => console.log("AudioContext 喚醒失敗:", err));
+    }
+
+    // 解鎖完成後，移除監聽器，釋放資源
+    document.removeEventListener('touchstart', unlockAudio);
+    document.removeEventListener('click', unlockAudio);
+    document.removeEventListener('keydown', unlockAudio);
+  }
+
+  // 【關鍵】：將解鎖函數綁定到整個網頁文件，並設定 passive: true (絕對不要加 preventDefault)
+  document.addEventListener('touchstart', unlockAudio, { passive: true });
+  document.addEventListener('click', unlockAudio, { passive: true });
+  document.addEventListener('keydown', unlockAudio, { passive: true });
   
   // === 【全新重構：全端口相容、絕不卡死網路圖片的 Safari 全局音訊破壁器】 ===
   function handleStartButtonClick(e) {
