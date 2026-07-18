@@ -182,7 +182,7 @@ canvas {
 <h1 id="gameTitle">🦊 Coco狐快跑 🦊</h1>
 <div id="wrap">
   <canvas id="game" width="800" height="300"></canvas>
-  <!-- 你的去背白狐狸 GIF -->
+  <!-- 您的去背白狐狸 GIF -->
   <img id="playerSprite" src="ezgif-CocoFoxSantaRunningTransparent_1.gif" width="76" height="76">
   
   <!-- BGM 開關按鈕 -->
@@ -208,6 +208,7 @@ canvas {
   const ctx = canvas.getContext('2d');
   const spriteEl = document.getElementById('playerSprite');
   const W = canvas.width, H = canvas.height;
+  
   // === 【新增：晝夜交替全域狀態與進度控制變數】 ===
   let sceneProgress = 0; // 當前過渡進度（0~1）
   let sceneCurrent = 'snow'; // 當前場景狀態
@@ -227,11 +228,11 @@ canvas {
   }
   const groundY = 235;
 
-  // --- 【Debug 工具：如果你想在畫面上直接看見判定盒，請改成 true】 ---
+  // --- 【Debug 工具：如果您想在畫面上直接看見判定盒，請改成 true】 ---
   const DEBUG_MODE = false; 
   // === 【測試小工具：自訂起始分數直達車】 ===
   const START_SCORE_TEST = false; // 💡 測試時改成 true，想正常玩時改成 false
-  const TEST_START_SCORE = 880;   // 💡 在此填入你想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
+  const TEST_START_SCORE = 880;   // 💡 在此填入您想要直達的起跑分數（例如 880 測試黃昏，1880 測試破曉）
 
   const overlay = document.getElementById('overlay');
   const overlayText = document.getElementById('overlayText');
@@ -265,7 +266,7 @@ canvas {
       const baseWidth = 70 + Math.random() * 30;
       
       // 💡 如果有傳入 startX（破曉切換時），讓雲朵在畫布右側外（startX）每隔 250px 排隊出生
-      // 💡 如果是 null（開局重置時），則維持原本的畫布內隨機隨機分佈
+      // 💡 如果是 null（開局重置時），則維持原本的畫布內隨機分佈
       const cloudX = (startX !== null) ? (startX + i * 250) : (Math.random() * W);
       
       clouds.push({
@@ -334,8 +335,6 @@ canvas {
 
   // 動態背景大樓數據陣列
   // === 【重構：雙層立體霓虹都市大樓數據結構】 ===
-  // === 【重構：方案 A 邊緣霓虹高光都市大樓數據結構】 ===
-  // === 【重構：方案 1 剪紙重疊陰影都市大樓數據結構】 ===
   let cityBuildings = [];
   function initBuildings(startX = null) {
     cityBuildings = [];
@@ -408,18 +407,22 @@ canvas {
   };
 
   // === 【優化：全端口混音音量動態平衡調整】 ===
-  audio.bgm.volume = 0.55;           // 🎵 BGM 降到 35%，當作優雅的背景襯底，絕不蓋過過Coco的叫聲
-  audio.jump.volume = 0.65;           // 🦊 原本的跳躍聲維持高亢 (90%)
-  audio.scoreMilestone.volume = 0.8; // 🔔 原本的里程碑破百歡呼聲維持 (90%)
+  audio.bgm.volume = 0.55;           // 🎵 BGM 降到 55%，當作優雅的背景襯底，絕不蓋過 Coco 的叫聲
+  audio.jump.volume = 0.65;          // 🦊 原本的跳躍聲維持高亢
+  audio.scoreMilestone.volume = 0.8; // 🔔 原本的里程碑破百歡呼聲維持
 
   // 🌟 剛剛新增的三個音效：強行推滿到 100% 最大輸出！
   audio.getPoop.volume = 1.0;        // 💩 吃大便聲全力輸出！
   audio.getGift.volume = 1.0;        // 🎁 拿禮物聲全力輸出！
   audio.gameOver.volume = 1.0;       // 🎬 死亡慘叫聲全力輸出！
   audio.bgm.loop = true;
+  
   let isMuted = false;
   let isStarting = false; // 【新增】防止按鈕被瞬間重複觸發的保護開關
   let lastMilestoneScore = 0; 
+  
+  // 🌟 【核心修復】：記錄 BGM 是否已經成功啟動過，避免重複播放或第一局漏播
+  let isBgmPlaying = false;
 
   const images = {
     police: new Image(),
@@ -534,6 +537,17 @@ canvas {
     sound.play().catch(e => console.log("音效播放失敗: ", e));
   }
 
+  // 🌟 【核心修復】：統一嘗試播放 BGM 的函數
+  function tryPlayBgm() {
+    if (!isMuted && !isBgmPlaying) {
+      audio.bgm.play().then(() => {
+        isBgmPlaying = true; // 播放成功，標記為已啟動，後續不再重複呼叫 play()
+      }).catch(err => {
+        console.log("BGM 播放被瀏覽器攔截或延遲:", err);
+      });
+    }
+  }
+
   // 跳躍
   function jump(){
     if(state==='ready' || state==='gameover'){ startGame(); return; }
@@ -612,14 +626,12 @@ canvas {
   startBtn.addEventListener('click', handleStartButtonClick);
   startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
 
+  // 🎯 【核心修復】：startGame 只負責重置狀態與嘗試播放 BGM
   function startGame(){
-    if (!isMuted) {
-      audio.bgm.play().catch(e => console.log("BGM 播放受限"));
-    }
     resetGame();
     state = 'running';
     overlay.classList.add('hidden');
-    statsDisplay.style.display = 'none';
+    tryPlayBgm(); // 統一在這裡嘗試播放，無論是按鍵還是點擊按鈕觸發
   }
 
   function endGame(){
@@ -684,7 +696,6 @@ canvas {
     }
 
     // 💡 偵測場景轉換起點！當剛跨越臨界點時，在右側（W）初始化新背景
-    // === 【優化：移除 1900 分的山脈與雲朵重置，保留其原本的滾動連續性】 ===
     if (sceneNext !== lastSceneNext) {
       if (sceneNext === 'city') {
         // 黃昏 900 分：都市大樓群正常在畫布右側外（W + 50）排隊生成並開始滾動進場
@@ -708,7 +719,6 @@ canvas {
     mountains.forEach(m => {
       m.x -= (speed * m.scrollSpeed);
       if (m.x + m.w < -100) {
-        // 膠捲核心：只有在下個場景依然是白天雪地時，滑出的雪山才循環回右側
         if (sceneNext === 'snow') {
           let maxRight = -100;
           mountains.forEach(mt => {
@@ -716,7 +726,6 @@ canvas {
           });
           m.x = maxRight + m.w * (m.layer === 'far' ? 0.7 : 0.75);
         } else {
-          // 入夜過渡中：滑出左側邊界的雪山直接移走不回頭
           m.x = -9999;
         }
       }
@@ -740,60 +749,46 @@ canvas {
 
     cityBuildings.forEach(b => {
       if (b.x + b.w < -100) {
-        // 判定這棟大樓滑出左邊界後，是否要重新在右側循環拼接出生：
         let shouldWrap = false;
 
         if (b.layer === 'far') {
-          // 1. 後排慢速大樓：只有在夜晚 1000~1600 分之間才循環生成，1600 後提前截流
           if (currentLoopScore >= 1000 && currentLoopScore < 1600) {
             shouldWrap = true;
           }
         } else {
-          // 2. 前排快速大樓：維持原版，在整個黑夜 1000~1900 分之間都正常循環，1900 破曉才退場
           if (currentLoopScore >= 1000 && currentLoopScore < 1900) {
             shouldWrap = true;
           }
         }
 
         if (shouldWrap) {
-          // 執行右側循環拼接
           let maxRight = W;
           cityBuildings.forEach(bt => {
             if (bt.layer === b.layer && bt.x > maxRight) maxRight = bt.x;
           });
           b.x = maxRight + b.w - 5;
         } else {
-          // 退場：滑出左邊界的大樓不再循環，移至極左側放行舞台
           b.x = -9999;
         }
       }
     });
 
-    // 破曉 1900 一到，主動將右側外尚未露臉的大樓過濾清除，防止新大樓再進場
-    // 🌟 修正黃昏秒殺 Bug：只在破曉退場期 (1900~2000分) 與純白天 (0~900分) 才沒收右側外的大樓。
-    // 在黃昏過渡期 (900~1000分) 時放行右側出生的大樓順暢滑入螢幕。
     if (currentLoopScore >= 1900 || currentLoopScore < 900) {
       cityBuildings = cityBuildings.filter(b => b.x < W);
     }
 
-    // 🌟 修正前排退場太晚 Bug：當剛跨入 1900 分破曉的那一瞬間，
-    // 直接將已經在畫面右側外面排隊、看不見的前排大樓尾巴一刀切斷！
-    // 這樣前排大樓就沒有了長火車尾的累贅，能以 0.15 的快速最準時地在 2050 分前自然走光。
     if (currentLoopScore === 1900) {
       cityBuildings = cityBuildings.filter(b => b.x < W);
     }
 
     // 💡 4. 雪花更新：實現「雪花自然落盡」效果
     const relativeScore = Math.floor(score) % 2000;
-    // 只有在夜晚 (900~1900) 以及破曉過渡前半段 (1900~1950) 才會「生成」新雪花
     const shouldSpawnSnow = relativeScore >= 900 && relativeScore < 1950; 
     
-    // 只要畫面上還有雪花，就持續更新它們的位置，讓它們自然飄落出境
     if (snowflakes.length > 0 || shouldSpawnSnow) {
       snowflakes.forEach(s => { s.y += s.vy; s.x += s.drift; });
       snowflakes = snowflakes.filter(s => s.y < groundY + 10);
       
-      // 只有在生成區間內，才隨機產生新雪花
       if (shouldSpawnSnow && Math.random() < 0.35) {
         spawnSnow(false);
       }
@@ -840,13 +835,11 @@ canvas {
   }
 
   // 天空背景漸層渲染
-  // === 【修改：支援 2000 分大循環平滑漸變的天空渲染】 ===
   function drawSky() {
     const snowTop = '#a1c4fd', snowBot = '#c2e9fb'; // 白天天空
     const cityTop = '#0d081f', cityBot = '#1a103c'; // 夜晚天空
     let topColor, bottomColor;
 
-    // 依據晝夜進度，即時用 lerpColor 計算出當前的過渡天色
     if (sceneCurrent === 'snow' && sceneNext === 'snow') {
       topColor = snowTop; bottomColor = snowBot;
     } else if (sceneCurrent === 'city' && sceneNext === 'city') {
@@ -866,18 +859,15 @@ canvas {
     ctx.fillRect(0, 0, W, H);
   }
 
-  // --- 【核心修改 4：利用多圓重疊渲染出高低起伏的「複雜蓬鬆積雲」】 ---
   function drawClouds() {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // 溫和半透明白色
     
     clouds.forEach(c => {
-      // 1. 繪製底部圓角長條
       ctx.beginPath();
       ctx.roundRect(c.x, c.y, c.w, c.h, c.h / 2);
       ctx.fill();
       
-      // 2. 繪製上方的重疊泡泡圓形，構成複雜起伏形狀
       c.circles.forEach(circ => {
         ctx.beginPath();
         ctx.arc(c.x + circ.rx, c.y + circ.ry + c.h / 2, circ.r, 0, Math.PI * 2);
@@ -888,31 +878,23 @@ canvas {
     ctx.restore();
   }
 
-  // 城市剪影大樓繪製
-  // === 【重構：繪製「立體摺紙霓虹風」雙層都市大樓】 ===
-  // === 【重構：繪製方案 A「邊緣霓虹側光風」雙層都市大樓】 ===
-  // === 【重構：繪製方案 1「剪紙重疊陰影風」雙層都市大樓】 ===
   function drawCityBuildings() {
     ctx.save();
     
-    // 依序先畫後排遠景大樓，再疊加前排近景大樓與陰影
     const layersOrder = ['far', 'near'];
     layersOrder.forEach(layerTag => {
       cityBuildings.forEach(b => {
         if (b.layer !== layerTag) return;
 
-        // --- 如果是前排近景大樓，先在它右側投射半透明剪紙陰影 ---
         if (layerTag === 'near') {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'; // 高質感的深邃半透明黑色投影
           const shadowWidth = 10; // 陰影寬度 10 像素
           ctx.fillRect(b.x + b.w, groundY - b.h, shadowWidth, b.h);
         }
 
-        // --- 1. 繪製大樓主體面（極致乾淨、無光邊的單色矩形） ---
         ctx.fillStyle = b.mainColor;
         ctx.fillRect(b.x, groundY - b.h, b.w, b.h);
 
-        // --- 2. 繪製前排近景大樓的精緻冷暖色霓虹窗戶 ---
         b.windows.forEach(w => {
           ctx.fillStyle = w.color;
           ctx.globalAlpha = 0.85;
@@ -925,7 +907,6 @@ canvas {
     ctx.restore();
   }
 
-  // 雪花繪製
   function drawSnow(){
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     snowflakes.forEach(s=>{
@@ -935,10 +916,7 @@ canvas {
     });
   }
 
-  // 地面繪製
-  // === 【重構：支援晝夜平滑交替的地面渲染】 ===
   function drawGround(){
-    // 1. 繪製白天的雪地地面函數
     const renderSnowGround = () => {
       ctx.fillStyle = '#eef6fb';
       ctx.fillRect(0, groundY+2, W, H-groundY-2);
@@ -951,7 +929,6 @@ canvas {
       for(let x=-off; x<W; x+=40) ctx.fillRect(x, groundY+10, 16, 3);
     };
 
-    // 2. 繪製夜晚的馬路地面函數
     const renderCityGround = () => {
       ctx.fillStyle = '#1e1e24';
       ctx.fillRect(0, groundY+2, W, H-groundY-2);
@@ -964,7 +941,6 @@ canvas {
       for(let x=-off; x<W; x+=50) ctx.fillRect(x, groundY+30, 24, 4);
     };
 
-    // 3. 依據過渡進度進行雙層路面透明度疊加 (Cross-fade)
     if (sceneCurrent === 'snow' && sceneNext === 'snow') {
       renderSnowGround();
     } else if (sceneCurrent === 'city' && sceneNext === 'city') {
@@ -988,7 +964,6 @@ canvas {
         ctx.fillRect(o.x, o.y, o.w, o.h);
       }
 
-      // --- 【Debug 模式：繪製障礙物紅色物理判定盒】 ---
       if (DEBUG_MODE) {
         ctx.strokeStyle = 'red';
         ctx.lineWidth = 2;
@@ -1011,10 +986,7 @@ canvas {
     });
   }
 
-  // === 【重構：支援字色平滑過渡的 drawScore 函數】 ===
-  // === 【重構：支援「當前分數行」金黃呼吸燈提示的 drawScore 函數】 ===
   function drawScore(){
-    // 1. 依據晝夜進度，平滑融合基礎字體顏色：白天為深藍 (#1c3f66)，夜晚為溫和白 (#fffdf7)
     let baseTextColor = '#1c3f66';
     const snowColor = '#1c3f66', cityColor = '#fffdf7';
 
@@ -1028,27 +1000,19 @@ canvas {
       baseTextColor = lerpColor(cityColor, snowColor, sceneProgress);
     }
 
-    // 2. 🌟 核心呼吸燈演算法：利用正弦波 (Math.sin) 產生絲滑的顏色插值權重
     let currentScoreColor = baseTextColor;
     if (scoreBreathTimer > 0) {
-      const targetColor = '#ffd166'; // 使用前排大樓窗戶最內斂溫暖的璀璨金黃霓虹色
-      
-      // 利用 Math.sin 配合計時器，把數值對應成一條平滑起伏的波浪（介於 0 到 1 之間）
-      // 乘以 0.2 可以將正弦波頻率控制在「1秒鐘優雅呼吸起伏兩下」的舒適速度
+      const targetColor = '#ffd166'; 
       const breathWeight = Math.abs(Math.sin((60 - scoreBreathTimer) * 0.2));
-      
-      // 使用平滑的權重，將基礎字色與金黃色無縫融合
       currentScoreColor = lerpColor(baseTextColor, targetColor, breathWeight);
     }
 
     ctx.font = 'bold 14px "Courier New", monospace';
     
-    // 💡 僅讓「當前分數」這一行套用平滑的呼吸燈顏色 (currentScoreColor)
     ctx.fillStyle = currentScoreColor;
     ctx.textAlign = 'right';
     ctx.fillText('分數 ' + Math.floor(score).toString().padStart(5,'0'), W-16, 26);
     
-    // 💡 其餘「最高分數」與「收集物數量」維持 100% 靜止，原色呈現，絕不干擾玩家視線
     ctx.fillStyle = baseTextColor;
     ctx.fillText('最高 ' + best.toString().padStart(5,'0'), W-16, 44);
     ctx.fillText('💩x' + poopCount + '  🎁x' + giftCount, W-16, 62);
@@ -1062,22 +1026,16 @@ canvas {
     }
   }
 
-  // === 【全新重構：2000分晝夜交替大循環 render 函數】 ===
-  // === 【精簡：膠捲播放無縫背景渲染 render 函數】 ===
   function render(){
     ctx.clearRect(0,0,W,H);
-    
-    // 1. 繪製平滑漸變天空 (已在 drawSky 內部進行平滑插值計算)
     drawSky();
-    
-    // 2. 繪製白天雪山與雲朵
     drawClouds();
 
     const layersOrder = ['far', 'near'];
     layersOrder.forEach(layerTag => {
       mountains.forEach(m => {
         if (m.layer !== layerTag) return;
-        if (m.x < -200 || m.x > W + 200) return; // 視窗剪裁
+        if (m.x < -200 || m.x > W + 200) return; 
 
         const peakX = m.x + m.peakOffset;
         const peakY = groundY - m.h;
@@ -1113,13 +1071,8 @@ canvas {
       });
     });
     
-    // 3. 繪製夜晚都市大樓
     drawCityBuildings();
-
-    // 4. 繪製夜間雪花
     drawSnow();
-    
-    // 5. 繪製路面、障礙物、收集物與 UI
     drawGround();
     drawObstacles();
     drawCollectibles();
@@ -1159,39 +1112,26 @@ canvas {
   render();
   
   // === 【全新重構：全端口相容、絕不卡死網路圖片的 Safari 全局音訊破壁器】 ===
-  // === 【全新重構：全端口環境識別特判、各瀏覽器各司其職的黃金分流器】 ===
   function handleStartButtonClick(e) {
-  // 【核心保護】如果正在啟動中，直接忽略後續的重複觸發
-  if (isStarting) return;
-  isStarting = true;
+    // 【核心保護】如果正在啟動中，直接忽略後續的重複觸發
+    if (isStarting) return;
+    isStarting = true;
 
-  if (e) {
-    // 只在 touchstart 時阻止預設行為，避免干擾正常的 click 事件流
-    if (e.type === 'touchstart') {
-      e.preventDefault();
+    if (e) {
+      // 只在 touchstart 時阻止預設行為，避免干擾正常的 click 事件流
+      if (e.type === 'touchstart') {
+        e.preventDefault();
+      }
     }
+
+    // 🎮 啟動遊戲邏輯 (內部已包含 tryPlayBgm)
+    startGame();
+
+    // 遊戲啟動後，延遲 500 毫秒重置開關，確保不會影響後續的正常操作
+    setTimeout(() => { 
+      isStarting = false; 
+    }, 500);
   }
-
-  // 🎵 1. 播放 BGM (現代瀏覽器只要在 click 事件內直接呼叫 play() 即可通過審核)
-  if (audio && audio.bgm && !isMuted) {
-    audio.bgm.play().catch(err => {
-      console.warn("BGM 播放被瀏覽器攔截，錯誤資訊:", err);
-    });
-  }
-
-  // 🎮 2. 啟動遊戲邏輯
-  startGame();
-
-  // 遊戲啟動後，延遲 500 毫秒重置開關，確保不會影響後續的正常操作
-  setTimeout(() => { 
-    isStarting = false; 
-  }, 500);
-}
-
-  // 🌟 終極合體保險：將傳統 click 與行動端 touchstart 雙重綁定到最底部的解鎖函數上！
-  // 焊在整份腳本的最末端執行，100% 確保 Brave、Chrome、Safari 行動端點擊時，音訊權限全局開放！
-  startBtn.addEventListener('click', handleStartButtonClick);
-  // startBtn.addEventListener('touchstart', handleStartButtonClick, { passive: false });
 
   requestAnimationFrame((time) => {
     lastTime = time;
